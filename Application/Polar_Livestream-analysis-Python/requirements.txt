@@ -17,3 +17,9 @@ neurokit2>=0.2.0
 pyhrv>=0.4.1
 biosppy>=1.0.0
 matplotlib>=3.5.0
+
+# VO2max Neural Network (CardioFitness pretrained model)
+# Run setup_cardiofitness.py after installing to download model weights.
+tensorflow>=2.12.0
+scikit-learn>=1.3.0
+joblib>=1.3.0

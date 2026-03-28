@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QComboBox, QGroupBox, QTextEdit, QCheckBox, QSplitter,
     QSizePolicy, QApplication, QStatusBar, QGridLayout,
+    QSpinBox, QDoubleSpinBox, QTabWidget,
 )
 from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSlot
 from PyQt5.QtGui import QFont, QColor, QPalette
@@ -23,6 +24,8 @@ from polar_ecg.utils.constants import (
 from polar_ecg.utils.ring_buffer import RingBuffer
 from polar_ecg.workers.ble_worker import BLEWorker
 from polar_ecg.workers.processing_worker import ProcessingWorker
+from polar_ecg.utils.vo2max_estimator import VO2MaxEstimator
+from polar_ecg.utils.nn_vo2max import CardioFitnessNN
 
 
 def _make_dark_palette() -> QPalette:
@@ -89,7 +92,7 @@ QPushButton#freezeBtn {{
     color: {bg};
     font-weight: bold;
 }}
-QComboBox {{
+QComboBox, QSpinBox, QDoubleSpinBox {{
     background-color: {surface};
     color: {text};
     border: 1px solid {border};
@@ -100,6 +103,12 @@ QComboBox QAbstractItemView {{
     background-color: {surface};
     color: {text};
     selection-background-color: {primary};
+}}
+QSpinBox::up-button, QDoubleSpinBox::up-button,
+QSpinBox::down-button, QDoubleSpinBox::down-button {{
+    background-color: {border};
+    border: none;
+    border-radius: 2px;
 }}
 QLabel {{
     color: {text};
@@ -120,6 +129,30 @@ QStatusBar {{
     background-color: {surface};
     color: {dim};
     border-top: 1px solid {border};
+}}
+QTabWidget::pane {{
+    border: 1px solid {border};
+    border-radius: 4px;
+    background-color: {surface};
+}}
+QTabBar::tab {{
+    background-color: {bg};
+    color: {dim};
+    border: 1px solid {border};
+    border-bottom: none;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+    padding: 5px 14px;
+    font-size: 12px;
+}}
+QTabBar::tab:selected {{
+    background-color: {surface};
+    color: {text};
+    font-weight: bold;
+}}
+QTabBar::tab:hover:!selected {{
+    background-color: {border};
+    color: {text};
 }}
 """.format(
     bg=DARK_THEME["background"],
@@ -144,6 +177,12 @@ class MainDashboard(QMainWindow):
         self._frozen = False
         self._window_seconds = DEFAULT_WINDOW_SECONDS
         self._connected = False
+        self._last_hrv_result: dict = {}
+        self._vo2max_est = VO2MaxEstimator(age=30, sex="male", weight_kg=70.0)
+        self._nn = CardioFitnessNN()
+        # Accumulate ACC samples → 1-Hz epochs for the NN
+        self._acc_epoch_accum: list = []
+        self._acc_epoch_count = 0
 
         # Data buffers (120 seconds rolling, numpy ring buffers)
         buf_sec = 120
@@ -199,7 +238,9 @@ class MainDashboard(QMainWindow):
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(0, 0, 0, 0)
         self._build_device_controls(right_layout)
+        self._build_user_profile_panel(right_layout)
         self._build_hrv_panel(right_layout)
+        self._build_fitness_panel(right_layout)
         self._build_log_panel(right_layout)
         right_layout.addStretch()
         splitter.addWidget(right_panel)
@@ -323,38 +364,210 @@ class MainDashboard(QMainWindow):
         group.setLayout(layout)
         parent_layout.addWidget(group)
 
-    def _build_hrv_panel(self, parent_layout):
-        group = QGroupBox("HRV Analysis (Rolling)")
+    def _build_user_profile_panel(self, parent_layout):
+        group = QGroupBox("User Profile")
+        grid = QGridLayout()
+        grid.setContentsMargins(8, 8, 8, 8)
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(4)
+
+        def _lbl(t):
+            l = QLabel(t)
+            l.setStyleSheet(f"color: {DARK_THEME['text_dim']};")
+            return l
+
+        grid.addWidget(_lbl("Age"),  0, 0)
+        self._age_spin = QSpinBox()
+        self._age_spin.setRange(13, 100)
+        self._age_spin.setValue(30)
+        self._age_spin.setSuffix(" yr")
+        self._age_spin.valueChanged.connect(self._on_profile_changed)
+        grid.addWidget(self._age_spin, 0, 1)
+
+        grid.addWidget(_lbl("Sex"),  0, 2)
+        self._sex_combo = QComboBox()
+        self._sex_combo.addItems(["Male", "Female"])
+        self._sex_combo.currentIndexChanged.connect(self._on_profile_changed)
+        grid.addWidget(self._sex_combo, 0, 3)
+
+        grid.addWidget(_lbl("Weight"),  1, 0)
+        self._weight_spin = QDoubleSpinBox()
+        self._weight_spin.setRange(30.0, 250.0)
+        self._weight_spin.setValue(70.0)
+        self._weight_spin.setSuffix(" kg")
+        self._weight_spin.setSingleStep(0.5)
+        self._weight_spin.valueChanged.connect(self._on_profile_changed)
+        grid.addWidget(self._weight_spin, 1, 1)
+
+        grid.addWidget(_lbl("Height"),  1, 2)
+        self._height_spin = QDoubleSpinBox()
+        self._height_spin.setRange(1.20, 2.50)
+        self._height_spin.setValue(1.75)
+        self._height_spin.setSuffix(" m")
+        self._height_spin.setSingleStep(0.01)
+        self._height_spin.setDecimals(2)
+        self._height_spin.valueChanged.connect(self._on_profile_changed)
+        grid.addWidget(self._height_spin, 1, 3)
+
+        group.setLayout(grid)
+        parent_layout.addWidget(group)
+
+    def _build_fitness_panel(self, parent_layout):
+        group = QGroupBox("VO₂max Estimate")
         layout = QGridLayout()
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setVerticalSpacing(3)
+        layout.setHorizontalSpacing(10)
+        layout.setColumnStretch(1, 1)
+        layout.setColumnStretch(2, 1)
+
+        T = DARK_THEME
+
+        def _hdr(text, align=Qt.AlignLeft):
+            lbl = QLabel(text)
+            lbl.setFont(QFont("Segoe UI", 9, QFont.Bold))
+            lbl.setStyleSheet(f"color: {T['text_dim']};")
+            lbl.setAlignment(align)
+            return lbl
+
+        def _row_lbl(text):
+            lbl = QLabel(text)
+            lbl.setFont(QFont("Segoe UI", 9, QFont.Bold))
+            return lbl
+
+        def _val(text="--", size=11, color=None, bold=False):
+            lbl = QLabel(text)
+            w = QFont.Bold if bold else QFont.Normal
+            lbl.setFont(QFont("Consolas", size, w))
+            lbl.setStyleSheet(f"color: {color or T['secondary']};")
+            return lbl
+
+        # Column headers
+        layout.addWidget(_hdr(""), 0, 0)
+        layout.addWidget(_hdr("Formula", Qt.AlignHCenter), 0, 1)
+        layout.addWidget(_hdr("Neural Net", Qt.AlignHCenter), 0, 2)
+
+        # Separator-style top
+        r = 1
+
+        # VO2max row
+        layout.addWidget(_row_lbl("VO₂max"), r, 0)
+        self._vo2max_val = _val(size=12, bold=True)
+        self._vo2max_val.setAlignment(Qt.AlignHCenter)
+        layout.addWidget(self._vo2max_val, r, 1)
+        self._nn_vo2max_val = _val(size=12, bold=True, color=T["primary"])
+        self._nn_vo2max_val.setAlignment(Qt.AlignHCenter)
+        layout.addWidget(self._nn_vo2max_val, r, 2)
+        r += 1
+
+        # Category row
+        layout.addWidget(_row_lbl("Category"), r, 0)
+        self._fitness_cat_lbl = _val(size=10, bold=True)
+        self._fitness_cat_lbl.setAlignment(Qt.AlignHCenter)
+        layout.addWidget(self._fitness_cat_lbl, r, 1)
+        self._nn_cat_lbl = _val(size=10, bold=True, color=T["primary"])
+        self._nn_cat_lbl.setAlignment(Qt.AlignHCenter)
+        layout.addWidget(self._nn_cat_lbl, r, 2)
+        r += 1
+
+        # Status / method row
+        layout.addWidget(_row_lbl("Method"), r, 0)
+        self._vo2max_method_lbl = _val(size=9, color=T["text_dim"])
+        self._vo2max_method_lbl.setAlignment(Qt.AlignHCenter)
+        layout.addWidget(self._vo2max_method_lbl, r, 1)
+        self._nn_status_lbl = _val(size=9, color=T["text_dim"])
+        self._nn_status_lbl.setAlignment(Qt.AlignHCenter)
+        layout.addWidget(self._nn_status_lbl, r, 2)
+        r += 1
+
+        # HR info row
+        layout.addWidget(_row_lbl("Resting HR"), r, 0)
+        self._rest_hr_lbl = _val(size=10)
+        self._rest_hr_lbl.setAlignment(Qt.AlignHCenter)
+        layout.addWidget(self._rest_hr_lbl, r, 1)
+        self._max_hr_lbl = _val(size=10, color=T["text_dim"])
+        self._max_hr_lbl.setAlignment(Qt.AlignHCenter)
+        layout.addWidget(self._max_hr_lbl, r, 2)
+
+        group.setLayout(layout)
+        parent_layout.addWidget(group)
+
+    def _build_hrv_panel(self, parent_layout):
+        group = QGroupBox("Analysis")
+        outer = QVBoxLayout()
+        outer.setContentsMargins(6, 6, 6, 6)
+        outer.setSpacing(4)
 
         self._hrv_enabled_cb = QCheckBox("Enable HRV Analysis")
         self._hrv_enabled_cb.setChecked(True)
         self._hrv_enabled_cb.toggled.connect(self._on_hrv_toggle)
-        layout.addWidget(self._hrv_enabled_cb, 0, 0, 1, 2)
+        outer.addWidget(self._hrv_enabled_cb)
 
-        hrv_fields = [
-            ("RMSSD:", "rmssd"),
-            ("SDNN:", "sdnn"),
-            ("LF/HF:", "lf_hf"),
-            ("Mean HR:", "mean_hr"),
-            ("P Width:", "p_width"),
-            ("QRS Width:", "qrs_width"),
-            ("ST Segment:", "st_width"),
-            ("QT Interval:", "qt_width"),
-            ("QTc (Bazett):", "qtc_width"),
-        ]
+        tabs = QTabWidget()
+        tabs.setDocumentMode(True)
+
+        # ---- Tab 1: HRV metrics ----
+        hrv_tab = QWidget()
+        hrv_grid = QGridLayout(hrv_tab)
+        hrv_grid.setContentsMargins(8, 10, 8, 8)
+        hrv_grid.setHorizontalSpacing(16)
+        hrv_grid.setVerticalSpacing(2)
+
         self._hrv_labels = {}
-        for i, (display, key) in enumerate(hrv_fields):
-            lbl = QLabel(display)
-            lbl.setFont(QFont("Segoe UI", 10, QFont.Bold))
-            layout.addWidget(lbl, i + 1, 0)
+        hrv_fields = [
+            ("RMSSD", "rmssd",   "ms"),
+            ("SDNN",  "sdnn",    "ms"),
+            ("LF/HF", "lf_hf",  ""),
+            ("HR",    "mean_hr", "bpm"),
+        ]
+        for i, (label, key, _unit) in enumerate(hrv_fields):
+            col = (i % 2) * 2
+            row = i // 2
+            hdr = QLabel(label)
+            hdr.setFont(QFont("Segoe UI", 9, QFont.Bold))
+            hdr.setStyleSheet(f"color: {DARK_THEME['text_dim']};")
+            hrv_grid.addWidget(hdr, row * 2, col)
             val = QLabel("--")
             val.setFont(QFont("Consolas", 11))
             val.setStyleSheet(f"color: {DARK_THEME['secondary']};")
-            layout.addWidget(val, i + 1, 1)
+            hrv_grid.addWidget(val, row * 2 + 1, col)
             self._hrv_labels[key] = val
 
-        group.setLayout(layout)
+        tabs.addTab(hrv_tab, "HRV")
+
+        # ---- Tab 2: ECG morphology ----
+        ecg_tab = QWidget()
+        ecg_grid = QGridLayout(ecg_tab)
+        ecg_grid.setContentsMargins(8, 10, 8, 8)
+        ecg_grid.setHorizontalSpacing(16)
+        ecg_grid.setVerticalSpacing(2)
+
+        self._ecg_labels = {}
+        ecg_fields = [
+            ("Avg HR",  "mean_hr",   "bpm"),
+            ("QRS",     "qrs_width", "ms"),
+            ("ST seg",  "st_width",  "ms"),
+            ("QT",      "qt_width",  "ms"),
+            ("QTc",     "qtc_width", "ms"),
+            ("P width", "p_width",   "ms"),
+        ]
+        for i, (label, key, _unit) in enumerate(ecg_fields):
+            col = (i % 2) * 2
+            row = i // 2
+            hdr = QLabel(label)
+            hdr.setFont(QFont("Segoe UI", 9, QFont.Bold))
+            hdr.setStyleSheet(f"color: {DARK_THEME['text_dim']};")
+            ecg_grid.addWidget(hdr, row * 2, col)
+            val = QLabel("--")
+            val.setFont(QFont("Consolas", 11))
+            val.setStyleSheet(f"color: {DARK_THEME['secondary']};")
+            ecg_grid.addWidget(val, row * 2 + 1, col)
+            self._ecg_labels[key] = val
+
+        tabs.addTab(ecg_tab, "ECG")
+
+        outer.addWidget(tabs)
+        group.setLayout(outer)
         parent_layout.addWidget(group)
 
     def _build_log_panel(self, parent_layout):
@@ -541,15 +754,36 @@ class MainDashboard(QMainWindow):
             self._acc_x_buf.extend(arr[:, 0])
             self._acc_y_buf.extend(arr[:, 1])
             self._acc_z_buf.extend(arr[:, 2])
+            # Compute per-sample vector magnitude and accumulate into 1-Hz epochs
+            mag = np.sqrt(arr[:, 0]**2 + arr[:, 1]**2 + arr[:, 2]**2)
+            self._acc_epoch_accum.extend(mag.tolist())
+            self._acc_epoch_count += len(mag)
+            if self._acc_epoch_count >= ACC_HZ:  # ~1 second
+                epoch_mag = float(np.mean(self._acc_epoch_accum))
+                self._nn.add_acc_mag_epoch(epoch_mag)
+                self._acc_epoch_accum.clear()
+                self._acc_epoch_count = 0
 
     @pyqtSlot(object)
     def _on_hr_data(self, data):
         ts, hr, rr = data
         self._hr_buf.append(hr)
+        self._vo2max_est.update_hr(hr)
+        self._nn.add_hr(hr)
 
     # ------------------------------------------------------------------ #
     #  Toolbar actions
     # ------------------------------------------------------------------ #
+
+    def _on_profile_changed(self):
+        age    = self._age_spin.value()
+        sex    = "male" if self._sex_combo.currentIndex() == 0 else "female"
+        weight = self._weight_spin.value()
+        height = self._height_spin.value()
+        self._vo2max_est.update_profile(age, sex, weight)
+        self._nn.update_profile(age, sex, height, weight)
+        if self._last_hrv_result:
+            self._update_fitness_display(self._last_hrv_result)
 
     def _on_window_changed(self, idx):
         self._window_seconds = self._window_combo.itemData(idx)
@@ -564,18 +798,89 @@ class MainDashboard(QMainWindow):
 
     @pyqtSlot(object)
     def _on_hrv_result(self, result: dict):
-        for key in self._hrv_labels:
+        self._last_hrv_result = result
+
+        # HRV tab
+        _hrv_fmt = {
+            "rmssd":   lambda v: f"{v:.1f} ms",
+            "sdnn":    lambda v: f"{v:.1f} ms",
+            "lf_hf":   lambda v: f"{v:.2f}",
+            "mean_hr": lambda v: f"{v:.0f} bpm",
+        }
+        for key, lbl in self._hrv_labels.items():
             val = result.get(key)
-            if val is not None:
-                if key == "mean_hr":
-                    text = f"{val:.0f} bpm"
-                elif key == "lf_hf":
-                    text = f"{val:.3f}"
-                else:
-                    text = f"{val:.1f} ms"
-                self._hrv_labels[key].setText(text)
-            else:
-                self._hrv_labels[key].setText("--")
+            lbl.setText(_hrv_fmt[key](val) if val is not None else "--")
+
+        # ECG tab
+        _ecg_fmt = {
+            "mean_hr":   lambda v: f"{v:.0f} bpm",
+            "qrs_width": lambda v: f"{v:.1f} ms",
+            "st_width":  lambda v: f"{v:.1f} ms",
+            "qt_width":  lambda v: f"{v:.1f} ms",
+            "qtc_width": lambda v: f"{v:.1f} ms",
+            "p_width":   lambda v: f"{v:.1f} ms",
+        }
+        for key, lbl in self._ecg_labels.items():
+            val = result.get(key)
+            lbl.setText(_ecg_fmt[key](val) if val is not None else "--")
+
+        rmssd = result.get("rmssd")
+        if rmssd is not None:
+            self._nn.add_hrv_rmssd(rmssd)
+
+        self._update_fitness_display(result)
+
+    def _update_fitness_display(self, hrv_result: dict):
+        """Render the two-column VO2max comparison (Formula | Neural Net)."""
+        rmssd   = hrv_result.get("rmssd")
+        fitness = self._vo2max_est.best_estimate(rmssd=rmssd)
+
+        # --- Formula column ---
+        if fitness["vo2max"] is not None:
+            self._vo2max_val.setText(f"{fitness['vo2max']:.1f}")
+        else:
+            self._vo2max_val.setText("--")
+
+        self._vo2max_method_lbl.setText(fitness["method"])
+
+        if fitness["category"]:
+            self._fitness_cat_lbl.setText(fitness["category"])
+            self._fitness_cat_lbl.setStyleSheet(
+                f"color: {fitness['category_color']}; font-weight: bold;"
+            )
+        else:
+            self._fitness_cat_lbl.setText("--")
+            self._fitness_cat_lbl.setStyleSheet(
+                f"color: {DARK_THEME['text_dim']}; font-weight: bold;"
+            )
+
+        hr_rest = fitness["hr_rest"]
+        self._rest_hr_lbl.setText(
+            f"{hr_rest:.0f} bpm" if hr_rest is not None else "--"
+        )
+        self._max_hr_lbl.setText(f"max {fitness['hr_max']:.0f} bpm")
+
+        # --- Neural Net column ---
+        nn_result = self._nn.predict()
+        nn_vo2 = nn_result.get("vo2max")
+        nn_status = nn_result.get("status", "")
+
+        if nn_vo2 is not None:
+            self._nn_vo2max_val.setText(f"{nn_vo2:.1f}")
+            nn_cat = self._vo2max_est._get_fitness_category(nn_vo2)
+            from polar_ecg.utils.vo2max_estimator import CATEGORY_COLORS
+            self._nn_cat_lbl.setText(nn_cat)
+            self._nn_cat_lbl.setStyleSheet(
+                f"color: {CATEGORY_COLORS.get(nn_cat, DARK_THEME['primary'])}; font-weight: bold;"
+            )
+            self._nn_status_lbl.setText("CardioFitness NN")
+        else:
+            self._nn_vo2max_val.setText("--")
+            self._nn_cat_lbl.setText("--")
+            self._nn_cat_lbl.setStyleSheet(
+                f"color: {DARK_THEME['text_dim']}; font-weight: bold;"
+            )
+            self._nn_status_lbl.setText(nn_status)
 
     # ------------------------------------------------------------------ #
     #  Cleanup
