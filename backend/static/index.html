@@ -4,114 +4,164 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PulseForgeAI - Clinical Assistant</title>
+    <title>PulseForgeAI — Clinical Reasoning Dashboard</title>
+    <meta name="description"
+        content="AI-powered cardiac rehabilitation assistant using Polar H10 ECG data and RAG-based clinical knowledge.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;800&display=swap"
         rel="stylesheet">
     <link rel="stylesheet" href="style.css">
-    <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
 <body>
-    <div class="app-container">
+    <div class="app-shell">
 
-        <!-- Sidebar Navigation -->
-        <aside class="sidebar card-panel">
+        <!-- ====== SIDEBAR ====== -->
+        <aside class="sidebar glass-panel">
+
+            <!-- Brand -->
             <div class="brand">
-                <i data-lucide="activity" class="brand-icon"></i>
-                <h2>PulseForgeAI</h2>
+                <div class="brand-logo">
+                    <i data-lucide="activity"></i>
+                </div>
+                <div>
+                    <h2>PulseForge<span>AI</span></h2>
+                    <p class="brand-sub">Cardiac Intelligence</p>
+                </div>
             </div>
 
-            <div class="sidebar-section">
-                <h3>Knowledge Base (RAG)</h3>
+            <!-- Sidebar Tabs -->
+            <div class="sidebar-tabs">
+                <button class="tab-btn active" data-tab="upload" id="tab-upload">
+                    <i data-lucide="upload-cloud"></i>
+                    <span>Upload</span>
+                </button>
+                <button class="tab-btn" data-tab="library" id="tab-library">
+                    <i data-lucide="library"></i>
+                    <span>Library</span>
+                    <span class="doc-count-badge" id="doc-count">0</span>
+                </button>
+            </div>
+
+            <!-- Tab: Upload -->
+            <div class="tab-content active" id="panel-upload">
+                <label class="section-label">Knowledge Base</label>
                 <div class="upload-zone" id="drop-zone">
-                    <i data-lucide="upload-cloud" class="upload-icon"></i>
-                    <p>Drop PDF documents here</p>
+                    <input type="file" id="file-upload" accept=".pdf" hidden>
+                    <i data-lucide="file-plus" class="upload-icon"></i>
+                    <p>Drop PDF here</p>
                     <span class="upload-subtext">or click to browse</span>
-                    <input type="file" id="file-upload" accept="application/pdf" hidden>
                 </div>
                 <div id="upload-status" class="status-msg hidden"></div>
             </div>
 
-            <div class="sidebar-section">
-                <h3>Live Edge Data Stream</h3>
-                <div class="stream-card active-stream">
-                    <div class="stream-header">
-                        <i data-lucide="watch" class="stream-icon"></i>
-                        <span>Polar H10 Stream</span>
-                        <div class="pulse-indicator"></div>
-                    </div>
-                    <div class="stream-stats">
-                        <div class="stat">
-                            <span class="label">BPM</span>
-                            <span class="value">72</span>
-                        </div>
-                        <div class="stat">
-                            <span class="label">HRV</span>
-                            <span class="value">45ms</span>
-                        </div>
+            <!-- Tab: Library -->
+            <div class="tab-content" id="panel-library">
+                <label class="section-label">Uploaded Documents</label>
+                <div class="doc-list" id="doc-list">
+                    <div class="doc-empty-state" id="doc-empty">
+                        <i data-lucide="inbox"></i>
+                        <p>No documents yet</p>
                     </div>
                 </div>
             </div>
 
-            <div class="sidebar-footer">
-                <div class="agent-status">
-                    <div class="agent-avatar"><i data-lucide="bot"></i></div>
-                    <div class="agent-info">
-                        <span class="agent-name">MedGemma Agent</span>
-                        <span class="agent-state">Online & Ready</span>
+            <!-- Vitals Card -->
+            <div class="vitals-card">
+                <div class="vitals-header">
+                    <i data-lucide="heart" class="vitals-icon"></i>
+                    <span>Polar H10 Live</span>
+                    <span class="pulse-dot"></span>
+                </div>
+                <div class="vitals-grid">
+                    <div class="vital-stat">
+                        <span class="vital-label">HR</span>
+                        <span class="vital-value">72 <small>bpm</small></span>
+                    </div>
+                    <div class="vital-stat">
+                        <span class="vital-label">HRV</span>
+                        <span class="vital-value">45.2 <small>ms</small></span>
+                    </div>
+                    <div class="vital-stat rr-stat">
+                        <span class="vital-label">Status</span>
+                        <span class="vital-value status-ok">Resting</span>
                     </div>
                 </div>
             </div>
+
+            <!-- Footer -->
+            <div class="sidebar-footer">
+                <div class="agent-pill">
+                    <div class="agent-avatar"><i data-lucide="brain-circuit"></i></div>
+                    <div>
+                        <p class="agent-name">MedGemma 4B</p>
+                        <p class="agent-online">● Online via Ollama</p>
+                    </div>
+                </div>
+            </div>
+
         </aside>
 
-        <!-- Main Workspace -->
+        <!-- ====== MAIN WORKSPACE ====== -->
         <main class="workspace">
-            <header class="workspace-header card-panel">
-                <div class="header-titles">
+
+            <!-- Header -->
+            <header class="workspace-header glass-panel">
+                <div>
                     <h1>Clinical Reasoning Dashboard</h1>
-                    <p>Synthesizing physiological signals with clinical literature.</p>
+                    <p>Ask any medical question or query your uploaded clinical documents.</p>
                 </div>
                 <div class="header-actions">
-                    <button class="icon-btn"><i data-lucide="settings"></i></button>
-                    <button class="icon-btn"><i data-lucide="bell"></i></button>
+                    <select id="model-select" class="model-dropdown">
+                        <option value="hf.co/unsloth/medgemma-4b-it-GGUF:Q4_K_M">MedGemma 4B</option>
+                        <option value="deepseek-r1:latest">DeepSeek R1</option>
+                        <option value="llama3.1:latest">Llama 3.1</option>
+                    </select>
+                    <button class="icon-btn" id="clear-chat-btn" title="Clear conversation">
+                        <i data-lucide="trash-2"></i>
+                    </button>
                 </div>
             </header>
 
-            <!-- Chat Interface -->
-            <div class="chat-container card-panel">
+            <!-- Chat Window -->
+            <div class="chat-container glass-panel">
                 <div class="chat-messages" id="chat-messages">
+                    <!-- Initial system message -->
                     <div class="message system-message fade-in">
-                        <div class="avatar"><i data-lucide="bot"></i></div>
+                        <div class="avatar system-avatar"><i data-lucide="bot"></i></div>
                         <div class="message-content">
-                            <p><strong>System initialized.</strong> Ready to assist with clinical summaries. Please
-                                upload relevant medical guidelines to the Knowledge Base, then query me about the
-                                patient's Polar H10 stream.</p>
+                            <p><strong>System initialized.</strong> I'm your clinical assistant powered by MedGemma. You
+                                can ask me any medical or physiological question — no document upload required. For
+                                specialized queries, upload a research paper or clinical guideline to the
+                                <strong>Library</strong> and I'll use it as context.
+                            </p>
                         </div>
                     </div>
                 </div>
 
+                <!-- Input Area -->
                 <div class="chat-input-area">
                     <div class="input-wrapper">
-                        <button class="action-btn" title="Attach physiological dataset"><i
-                                data-lucide="database"></i></button>
-                        <textarea id="query-input"
-                            placeholder="e.g., 'Generate a SOAP note for this patient based on the latest ACC/AHA guidelines in the database...'"
-                            rows="1"></textarea>
-                        <button class="action-btn send-btn" id="send-btn"><i data-lucide="send"></i></button>
+                        <button class="action-btn" title="Attach patient data" id="patient-data-btn">
+                            <i data-lucide="database"></i>
+                        </button>
+                        <textarea id="query-input" rows="1"
+                            placeholder="Ask a medical question or query your documents..."></textarea>
+                        <button class="send-btn" id="send-btn" title="Send">
+                            <i data-lucide="send"></i>
+                        </button>
                     </div>
+                    <p class="input-hint">Polar H10 data is always included · Press <kbd>Enter</kbd> to send</p>
                 </div>
             </div>
+
         </main>
     </div>
 
     <script src="app.js"></script>
-    <script>
-        lucide.createIcons();
-    </script>
+    <script>lucide.createIcons();</script>
 </body>
 
 </html>
