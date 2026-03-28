@@ -1,0 +1,19 @@
+# Polar ECG Dashboard - POC
+# pip install -r requirements.txt
+
+# GUI and visualization
+PyQt5>=5.15.0
+pyqtgraph>=0.13.0
+
+# BLE connectivity
+bleak>=0.22.0
+bleakheart>=0.2.0
+
+# Signal processing
+scipy>=1.13.0
+numpy>=2.0.0
+pandas>=2.0.0
+neurokit2>=0.2.0
+pyhrv>=0.4.1
+biosppy>=1.0.0
+matplotlib>=3.5.0
