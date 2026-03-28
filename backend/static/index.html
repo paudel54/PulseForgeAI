@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PulseForgeAI - Clinical Assistant</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;800&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+
+<body>
+    <div class="app-container">
+
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar card-panel">
+            <div class="brand">
+                <i data-lucide="activity" class="brand-icon"></i>
+                <h2>PulseForgeAI</h2>
+            </div>
+
+            <div class="sidebar-section">
+                <h3>Knowledge Base (RAG)</h3>
+                <div class="upload-zone" id="drop-zone">
+                    <i data-lucide="upload-cloud" class="upload-icon"></i>
+                    <p>Drop PDF documents here</p>
+                    <span class="upload-subtext">or click to browse</span>
+                    <input type="file" id="file-upload" accept="application/pdf" hidden>
+                </div>
+                <div id="upload-status" class="status-msg hidden"></div>
+            </div>
+
+            <div class="sidebar-section">
+                <h3>Live Edge Data Stream</h3>
+                <div class="stream-card active-stream">
+                    <div class="stream-header">
+                        <i data-lucide="watch" class="stream-icon"></i>
+                        <span>Polar H10 Stream</span>
+                        <div class="pulse-indicator"></div>
+                    </div>
+                    <div class="stream-stats">
+                        <div class="stat">
+                            <span class="label">BPM</span>
+                            <span class="value">72</span>
+                        </div>
+                        <div class="stat">
+                            <span class="label">HRV</span>
+                            <span class="value">45ms</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-footer">
+                <div class="agent-status">
+                    <div class="agent-avatar"><i data-lucide="bot"></i></div>
+                    <div class="agent-info">
+                        <span class="agent-name">MedGemma Agent</span>
+                        <span class="agent-state">Online & Ready</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Workspace -->
+        <main class="workspace">
+            <header class="workspace-header card-panel">
+                <div class="header-titles">
+                    <h1>Clinical Reasoning Dashboard</h1>
+                    <p>Synthesizing physiological signals with clinical literature.</p>
+                </div>
+                <div class="header-actions">
+                    <button class="icon-btn"><i data-lucide="settings"></i></button>
+                    <button class="icon-btn"><i data-lucide="bell"></i></button>
+                </div>
+            </header>
+
+            <!-- Chat Interface -->
+            <div class="chat-container card-panel">
+                <div class="chat-messages" id="chat-messages">
+                    <div class="message system-message fade-in">
+                        <div class="avatar"><i data-lucide="bot"></i></div>
+                        <div class="message-content">
+                            <p><strong>System initialized.</strong> Ready to assist with clinical summaries. Please
+                                upload relevant medical guidelines to the Knowledge Base, then query me about the
+                                patient's Polar H10 stream.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="chat-input-area">
+                    <div class="input-wrapper">
+                        <button class="action-btn" title="Attach physiological dataset"><i
+                                data-lucide="database"></i></button>
+                        <textarea id="query-input"
+                            placeholder="e.g., 'Generate a SOAP note for this patient based on the latest ACC/AHA guidelines in the database...'"
+                            rows="1"></textarea>
+                        <button class="action-btn send-btn" id="send-btn"><i data-lucide="send"></i></button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+    <script>
+        lucide.createIcons();
+    </script>
+</body>
+
+</html>
