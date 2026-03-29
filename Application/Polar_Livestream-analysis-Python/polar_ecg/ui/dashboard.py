@@ -954,12 +954,12 @@ def _sqi_category(sqi: float):
 
     Thresholds:
       ≥ 0.60  → Good      (green)
-      0.30–0.60 → Fair    (orange)
-      < 0.30  → Poor      (red/accent)
+      > 0.30  → Fair    (orange)
+      ≤ 0.30  → Poor      (red/accent)
     """
     T = DARK_THEME
     if sqi >= 0.60:
         return "Good", T["primary"]
-    if sqi >= 0.30:
+    if sqi > 0.30:
         return "Fair", "#fab387"   # orange
     return "Poor", T["accent"]
