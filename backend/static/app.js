@@ -6,7 +6,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const statusMsg = document.getElementById('upload-status');
     const queryInput = document.getElementById('query-input');
     const sendBtn = document.getElementById('send-btn');
-    const chatMessages = document.getElementById('chat-messages');
+    const chatMessagesDoc = document.getElementById('chat-messages-doc');
+    const chatMessagesPat = document.getElementById('chat-messages-pat');
+
+    function getChatContainer() {
+        return currentRole === 'patient' ? chatMessagesPat : chatMessagesDoc;
+    }
     const docList = document.getElementById('doc-list');
     const docEmpty = document.getElementById('doc-empty');
     const docCountBadge = document.getElementById('doc-count');
@@ -28,12 +33,16 @@ document.addEventListener('DOMContentLoaded', () => {
             btnPat.classList.remove('active');
             currentModel = 'hf.co/unsloth/medgemma-4b-it-GGUF:Q4_K_M';
             agentNameEl.textContent = 'MedGemma 4B';
+            chatMessagesDoc.style.display = '';
+            chatMessagesPat.style.display = 'none';
         } else {
             document.body.classList.add('theme-patient');
             btnPat.classList.add('active');
             btnDoc.classList.remove('active');
             currentModel = 'llama3.1:latest';
             agentNameEl.textContent = 'Llama 3.1';
+            chatMessagesDoc.style.display = 'none';
+            chatMessagesPat.style.display = '';
         }
     }
 
@@ -295,7 +304,7 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
         `;
 
-        chatMessages.appendChild(msgDiv);
+        getChatContainer().appendChild(msgDiv);
         lucide.createIcons();
         scrollToBottom();
     }
@@ -305,7 +314,7 @@ document.addEventListener('DOMContentLoaded', () => {
         div.className = 'system-notice fade-in';
         div.style.color = isError ? 'var(--danger)' : 'var(--text-secondary)';
         div.textContent = text;
-        chatMessages.appendChild(div);
+        getChatContainer().appendChild(div);
         scrollToBottom();
     }
 
@@ -325,14 +334,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
             </div>
         `;
-        chatMessages.appendChild(msgDiv);
+        getChatContainer().appendChild(msgDiv);
         lucide.createIcons();
         scrollToBottom();
         return id;
     }
 
     function scrollToBottom() {
-        chatMessages.scrollTop = chatMessages.scrollHeight;
+        const c = getChatContainer();
+        c.scrollTop = c.scrollHeight;
     }
 
     // ---- HTML-to-PDF Report Generation ----
