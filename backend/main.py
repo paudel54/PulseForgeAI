@@ -14,6 +14,8 @@ if os.environ.get("VERCEL") == "1":
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from safety_engine import EnergySafeWindow
+from agent_orchestrator import PulseForgeOrchestrator
 from pydantic import BaseModel
 import chromadb
 from pypdf import PdfReader
@@ -142,47 +144,32 @@ async def process_query(req: QueryRequest):
             except Exception as e:
                 cohort_context = f"\n[!] Cohort Engine Error: {str(e)}\n"
         
-        # 2. Construct Prompt dynamically based on Role
-        if getattr(req, "role", "doctor") == "patient":
-            system_role = (
-                "You are an empathetic, friendly, and highly professional clinical nurse speaking directly to a patient. "
-                "Use simple language and a warm, reassuring tone. "
-                "The patient might ask for a health report comparing their current vitals to their 5-day and 15-day history. "
-                "If they ask for a progress report, you MUST provide a detailed text report that uses clean ASCII bar charts to visualize their Heart Rate and HRV history. "
-                "Draw the charts clearly and explain what the trends mean in an encouraging way."
-            )
-        else:
-            system_role = (
-                "You are a knowledgeable clinical assistant specializing in cardiac rehabilitation and physiology. "
-                "Provide a clear, accurate, and medically-informed response. "
-                "CRITICAL: When your answer utilizes information from the Knowledge Base Context, you MUST explicitly cite the document by its [Source: filename] within your text."
-            )
-
-        prompt = f"""
-{system_role}
-
-Patient Physiological Data & History (Polar H10):
-{json.dumps(req.patient_data, indent=2)}
-
-Knowledge Base Context (from uploaded medical documents):
-{retrieved_context}
-{cohort_context}
-
-User Query:
-{req.query}
-
-Instructions: Use the Knowledge Base Context and Patient Data when they are relevant and helpful. 
-When extracting facts or reasoning from the Knowledge Base, distinctly cite the original filename (e.g. "According to [Source: AHA_Guidelines.pdf]...").
-If the context is not relevant, rely on your broad medical expertise. 
-Always be helpful and never refuse a question due to lack of uploaded context.
-"""
+        # 1.6 Execute Deterministic Safety Bounds (EnergySafeWindow)
+        # We mock patient intake data for the hackathon MVP scope
+        intake_data = {"age": 60, "prescribed_intensity_range": [0.4, 0.7]}
+        safety_engine = EnergySafeWindow(intake_data)
+        
+        current_hr = req.patient_data.get("metrics", {}).get("heart_rate_bpm", 70)
+        safety_bounds = safety_engine.check_safety(hr_bpm=current_hr, activity="exercise", sqi=0.95)
+        
+        # 2. Delegate to Lead Agent Orchestrator
+        orchestrator = PulseForgeOrchestrator()
+        assembled_context = orchestrator.assemble_prompt(
+            role=getattr(req, "role", "doctor"),
+            patient_data=req.patient_data,
+            retrieved_context=retrieved_context,
+            cohort_context=cohort_context,
+            safety_bounds=safety_bounds,
+            query=req.query
+        )
         
         # 3. Call local Ollama
         # Note: If Ollama isn't running, this will fail. For the hackathon demo, we'll try/except.
         try:
             payload = {
                 "model": req.model,
-                "prompt": prompt,
+                "system": assembled_context["system"],
+                "prompt": assembled_context["prompt"],
                 "stream": False
             }
             headers = {
