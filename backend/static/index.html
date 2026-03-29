@@ -10,6 +10,8 @@
     <link rel="stylesheet" href="fonts.css">
     <link rel="stylesheet" href="style.css?v=4">
     <script src="lucide.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
 </head>
 
 <body>
@@ -86,6 +88,12 @@
                         <span class="vital-value status-ok" id="live-status">Connecting...</span>
                     </div>
                 </div>
+
+                <!-- Real-Time Scrolling Heart Rate Chart -->
+                <div class="chart-container" style="margin-top: 20px; height: 75px; width: 100%;">
+                    <canvas id="hrChart"></canvas>
+                </div>
+
             </div>
 
             <!-- Footer -->
