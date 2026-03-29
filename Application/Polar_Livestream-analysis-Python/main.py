@@ -30,14 +30,19 @@ def main():
     app.setStyle("Fusion")
 
     from polar_ecg.ui.dashboard import MainDashboard
+    from polar_ecg.ui.intake_form import IntakeFormDialog
 
-    window = MainDashboard()
+    dlg = IntakeFormDialog()
+    if dlg.exec_() == IntakeFormDialog.Accepted:
+        window = MainDashboard(intake_payload=dlg.payload)
 
-    if args.mock:
-        window._start_acquisition(use_mock=True)
+        if args.mock:
+            window._start_acquisition(use_mock=True)
 
-    window.show()
-    sys.exit(app.exec_())
+        window.show()
+        sys.exit(app.exec_())
+    else:
+        sys.exit(0)
 
 
 if __name__ == "__main__":

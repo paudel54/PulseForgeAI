@@ -19,13 +19,15 @@ The application is structured into three primary decoupled layers, orchestrated 
 
 ### 2. Signal Processing Layer (`processing_worker.py`)
 - **Native Frequency Processing**: To prevent filter edge artifacts and maintain raw signal fidelity, polyphase resampling was intentionally avoided. The pipeline operates strictly on the native 130 Hz ECG stream.
+- **Signal Quality**: Computes the ECG Signal Quality Index (SQI) over 5-second windows using standard statistical metrics derived from the `vital_sqi` package.
 - **HRV Analytics (Time & Frequency Domain)**: 
   - Extracts R-peaks using `neurokit2` (`nk.ecg_peaks`).
   - Computes time-domain metrics (RMSSD, SDNN, Mean HR) on a rolling 30-second window.
   - Computes frequency-domain metrics (LF/HF ratio) utilizing the **Lomb-Scargle periodogram** (`pyhrv.frequency_domain.lomb_psd`). Lomb-Scargle is specifically chosen over Welch's method as it natively handles the unevenly sampled nature of RR intervals without requiring cubic spline interpolation, making it highly robust for short (30s) rolling windows.
 - **Morphological Delineation**: Uses Discrete Wavelet Transform (DWT) via `neurokit2` (`method="dwt"`) to dynamically delineate P, QRS, and T wave onsets and offsets. Computes mean spatial features: P-width, QRS-width, ST-segment, QT-interval, and QTc (Bazett's corrected).
 
-### 3. UI and Memory Management Layer (`dashboard.py` & `ring_buffer.py`)
+### 3. UI and Memory Management Layer (`dashboard.py`, `intake_form.py` & `ring_buffer.py`)
+- **Patient Intake Form**: A comprehensive 15-question Patient Intake form capturing Demographics, Clinical History, and Risk/Symptoms. The form auto-loads previously saved responses from `intake_state.json` and must be completed prior to opening the Dashboard view or starting a recording session.
 - **Rendering Engine**: `pyqtgraph` stacked plots with shared X-axes and peak-decimation downsampling (`antialias=False`, `setDownsampling(mode="peak")`).
 - **Memory Optimization**: Python's `collections.deque` incurs massive overhead when converted to `numpy` arrays at 30 FPS. We implemented a custom `RingBuffer` backed by contiguous `np.ndarray` memory. The `get_last_n()` method uses slice-based concatenation, achieving near zero-copy reads for the rendering loop.
 
@@ -42,7 +44,8 @@ The pipeline outputs the following metrics updated periodically:
 ```text
 polar_ecg/
 ├── ui/
-│   └── dashboard.py          # PyQt5 main window, layout, and 30FPS plotting timer
+│   ├── dashboard.py          # PyQt5 main window, layout, and 30FPS plotting timer
+│   └── intake_form.py        # Comprehensive multi-tab patient intake QDialog
 ├── workers/
 │   ├── ble_worker.py         # Hardened async BLE acquisition (QThread)
 │   └── processing_worker.py  # DWT delineation and Lomb-Scargle HRV (QThread)

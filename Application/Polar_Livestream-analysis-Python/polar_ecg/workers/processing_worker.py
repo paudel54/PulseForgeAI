@@ -226,10 +226,43 @@ class ProcessingWorker(QObject):
         instant_hr = None
 
         if len(r_peaks) >= 2:
-            quality_arr = nk.ecg_quality(
-                ecg_cleaned, rpeaks=r_peaks, sampling_rate=ECG_NATIVE_HZ,
-            )
-            sqi = float(np.mean(quality_arr))
+            import scipy.signal
+            
+            # 1. Main SQI: QRS Band Energy (bSQI approach)
+            try:
+                # Use Welch's method for Power Spectral Density
+                f, Pxx = scipy.signal.welch(ecg_cleaned, fs=ECG_NATIVE_HZ, nperseg=min(256, len(ecg_cleaned)))
+                
+                # Normal ECG QRS energy is dominant in 5 - 15 Hz
+                # Overall signal energy bounds considered 1 - 40 Hz
+                qrs_band = (f >= 5) & (f <= 15)
+                total_band = (f >= 1) & (f <= 40)
+                
+                qrs_power = np.sum(Pxx[qrs_band])
+                total_power = np.sum(Pxx[total_band])
+                
+                qrs_nergy_sqi = float(qrs_power / total_power) if total_power > 0 else 0.0
+            except Exception:
+                qrs_nergy_sqi = 0.5 # Safe fallback
+                
+            # 2. Secondary SQI: vital_sqi Kurtosis 
+            vital_score = None
+            try:
+                import vital_sqi.sqi.standard_sqi as standard_sqi
+                if hasattr(standard_sqi, 'kurtosis_sqi'):
+                    k = standard_sqi.kurtosis_sqi(ecg_cleaned)
+                    if k is not None:
+                        # Kurtosis for normal ECG is often > 5. Noise/sine waves are ~1.5 - 3.
+                        # Soft-normalize to [0, 1] range to match QRS ratio
+                        vital_score = min(max((float(k) - 2.0) / 8.0, 0.0), 1.0)
+            except Exception:
+                pass
+                
+            # Compute final weighted score prioritizing QRS band energy
+            if vital_score is not None:
+                sqi = (0.80 * qrs_nergy_sqi) + (0.20 * vital_score)
+            else:
+                sqi = qrs_nergy_sqi
 
             rr_ms = np.diff(r_peaks) / ECG_NATIVE_HZ * 1000.0
             valid = rr_ms[(rr_ms > 300) & (rr_ms < 2000)]

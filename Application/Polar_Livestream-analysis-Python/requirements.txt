@@ -16,6 +16,7 @@ pandas>=2.0.0
 neurokit2>=0.2.0
 pyhrv>=0.4.1
 biosppy>=1.0.0
+vital_sqi>=0.1.0
 matplotlib>=3.5.0
 
 # VO2max Neural Network (CardioFitness pretrained model)

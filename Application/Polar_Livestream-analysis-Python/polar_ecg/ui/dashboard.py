@@ -178,10 +178,12 @@ QTabBar::tab:hover:!selected {{
 class MainDashboard(QMainWindow):
     """Primary application window."""
 
-    def __init__(self):
+    def __init__(self, intake_payload=None):
         super().__init__()
         self.setWindowTitle("Polar ECG Dashboard")
         self.setMinimumSize(1200, 800)
+
+        self._intake_payload = intake_payload or {}
 
         self._frozen    = False
         self._connected = False
@@ -252,7 +254,7 @@ class MainDashboard(QMainWindow):
         right_layout.setContentsMargins(0, 0, 0, 0)
         self._build_device_controls(right_layout)
         self._build_recording_panel(right_layout)
-        self._build_user_profile_panel(right_layout)
+        self._build_intake_summary_panel(right_layout)
         self._build_hrv_panel(right_layout)
         self._build_log_panel(right_layout)
         right_layout.addStretch()
@@ -371,20 +373,9 @@ class MainDashboard(QMainWindow):
         parent_layout.addWidget(group)
 
     def _build_recording_panel(self, parent_layout):
-        group = QGroupBox("Subject & Recording")
+        group = QGroupBox("Recording")
         layout = QVBoxLayout()
         layout.setSpacing(6)
-
-        # Subject ID row
-        id_row = QHBoxLayout()
-        id_label = QLabel("Subject ID:")
-        id_label.setStyleSheet(f"color: {DARK_THEME['text_dim']};")
-        id_row.addWidget(id_label)
-        self._subject_id_edit = QLineEdit()
-        self._subject_id_edit.setPlaceholderText("e.g. S001")
-        self._subject_id_edit.setMaxLength(64)
-        id_row.addWidget(self._subject_id_edit)
-        layout.addLayout(id_row)
 
         # Record / Stop row
         rec_row = QHBoxLayout()
@@ -409,49 +400,37 @@ class MainDashboard(QMainWindow):
         group.setLayout(layout)
         parent_layout.addWidget(group)
 
-    def _build_user_profile_panel(self, parent_layout):
-        group = QGroupBox("User Profile")
-        grid = QGridLayout()
-        grid.setContentsMargins(8, 8, 8, 8)
-        grid.setHorizontalSpacing(8)
-        grid.setVerticalSpacing(4)
-
-        def _lbl(t):
-            l = QLabel(t)
-            l.setStyleSheet(f"color: {DARK_THEME['text_dim']};")
-            return l
-
-        grid.addWidget(_lbl("Age"),    0, 0)
-        self._age_spin = QSpinBox()
-        self._age_spin.setRange(13, 100)
-        self._age_spin.setValue(30)
-        self._age_spin.setSuffix(" yr")
-        grid.addWidget(self._age_spin, 0, 1)
-
-        grid.addWidget(_lbl("Sex"),    0, 2)
-        self._sex_combo = QComboBox()
-        self._sex_combo.addItems(["Male", "Female"])
-        grid.addWidget(self._sex_combo, 0, 3)
-
-        grid.addWidget(_lbl("Weight"), 1, 0)
-        self._weight_spin = QDoubleSpinBox()
-        self._weight_spin.setRange(30.0, 250.0)
-        self._weight_spin.setValue(70.0)
-        self._weight_spin.setSuffix(" kg")
-        self._weight_spin.setSingleStep(0.5)
-        grid.addWidget(self._weight_spin, 1, 1)
-
-        grid.addWidget(_lbl("Height"), 1, 2)
-        self._height_spin = QDoubleSpinBox()
-        self._height_spin.setRange(1.20, 2.50)
-        self._height_spin.setValue(1.75)
-        self._height_spin.setSuffix(" m")
-        self._height_spin.setSingleStep(0.01)
-        self._height_spin.setDecimals(2)
-        grid.addWidget(self._height_spin, 1, 3)
-
-        group.setLayout(grid)
+    def _build_intake_summary_panel(self, parent_layout):
+        group = QGroupBox("Patient Profile")
+        layout = QVBoxLayout()
+        
+        sub_id = self._intake_payload.get("subject_id", "Unknown")
+        age = self._intake_payload.get("age", "--")
+        sex = self._intake_payload.get("sex", "--")
+        
+        self._profile_info_lbl = QLabel(f"Subject ID: {sub_id}\nAge: {age} | Sex: {sex}")
+        self._profile_info_lbl.setStyleSheet(f"color: {DARK_THEME['secondary']}; font-weight: bold; font-size: 13px;")
+        layout.addWidget(self._profile_info_lbl)
+        
+        btn_layout = QHBoxLayout()
+        self._edit_intake_btn = QPushButton("Edit Intake Form")
+        self._edit_intake_btn.clicked.connect(self._on_edit_intake)
+        btn_layout.addStretch()
+        btn_layout.addWidget(self._edit_intake_btn)
+        
+        layout.addLayout(btn_layout)
+        group.setLayout(layout)
         parent_layout.addWidget(group)
+
+    def _on_edit_intake(self):
+        from polar_ecg.ui.intake_form import IntakeFormDialog
+        dlg = IntakeFormDialog(self)
+        if dlg.exec_() == IntakeFormDialog.Accepted:
+            self._intake_payload = dlg.payload
+            sub_id = self._intake_payload.get("subject_id", "Unknown")
+            age = self._intake_payload.get("age", "--")
+            sex = self._intake_payload.get("sex", "--")
+            self._profile_info_lbl.setText(f"Subject ID: {sub_id}\nAge: {age} | Sex: {sex}")
 
     def _build_hrv_panel(self, parent_layout):
         group = QGroupBox("Analysis")
@@ -783,19 +762,26 @@ class MainDashboard(QMainWindow):
     # ------------------------------------------------------------------ #
 
     def _on_start_recording(self):
-        subject_id = self._subject_id_edit.text().strip()
+        subject_id = self._intake_payload.get("subject_id", "")
         if not subject_id:
-            self._log("Enter a Subject ID before starting recording.")
+            self._log("Subject ID is missing. Please edit the Intake Form.")
             return
         try:
             path = self._exporter.start_session(subject_id)
+            import json
+            try:
+                with open(path / "intake_state.json", "w") as f:
+                    json.dump(self._intake_payload, f, indent=4)
+            except Exception as e:
+                self._log(f"Failed to copy intake form to session path: {e}")
+                
         except Exception as exc:
             self._log(f"Cannot start recording: {exc}")
             return
 
         self._record_btn.setEnabled(False)
         self._stop_rec_btn.setEnabled(True)
-        self._subject_id_edit.setEnabled(False)
+        self._edit_intake_btn.setEnabled(False)
         self._rec_status_lbl.setStyleSheet(f"color: {DARK_THEME['secondary']}; font-size: 11px;")
         self._rec_status_lbl.setText(f"● Recording  →  {path.name}")
         self._log(f"Recording started: {path}")
@@ -806,7 +792,7 @@ class MainDashboard(QMainWindow):
         n = self._exporter.window_count
         self._record_btn.setEnabled(True)
         self._stop_rec_btn.setEnabled(False)
-        self._subject_id_edit.setEnabled(True)
+        self._edit_intake_btn.setEnabled(True)
         self._rec_status_lbl.setStyleSheet(f"color: {DARK_THEME['text_dim']}; font-size: 11px;")
         self._rec_status_lbl.setText(f"Stopped. {n} window(s) saved.")
         self._log(f"Recording stopped. {n} × 5-second windows exported.")
