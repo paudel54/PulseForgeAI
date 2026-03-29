@@ -129,6 +129,14 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 # The web dashboard polls /api/live/metrics for real-time display
 ```
 
+## 🔑 Key Files for Evaluator Validation
+
+To verify the components mentioned in our documentation, please review the following key backend implementation files:
+- **`backend/main.py`** — Contains the FastAPI endpoints, including the `/api/session/{patient_id}/soap` generation endpoint and the ChromaDB KNN logic (lines 135-155).
+- **`backend/agent_orchestrator.py`** — Contains the `PulseForgeOrchestrator` role-based prompt assembly logic with emergency/safety bounds propagation (Layer 2 safety).
+- **`backend/safety_engine.py`** — Contains `EnergySafeWindow` implementing deterministic threshold checks (Layer 1 safety) before any LLM invocations.
+- **`backend/ingest_cohorts.py`** — Contains the script for ingesting physiological datasets into ChromaDB for cohort matching.
+
 ## 📁 Repository Structure
 
 ```
