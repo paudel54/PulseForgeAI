@@ -258,10 +258,14 @@ class IntakeFormDialog(QDialog):
                 
                 total_steps = sum(d["steps"] for d in data["days"])
                 overall_sleep = sum(d["sleep_hours"] for d in data["days"])
+                hr_days = sum(1 for d in data["days"] if d.get("avg_bpm") is not None)
+                temp_days = sum(1 for d in data["days"] if d.get("body_temp") is not None)
                 
                 self.txt_fit_status.append(f"Success! Fetched {len(data['days'])} days of metrics.")
                 self.txt_fit_status.append(f"Total Steps: {total_steps:,}")
                 self.txt_fit_status.append(f"Total Sleep: {overall_sleep:.1f} hrs")
+                self.txt_fit_status.append(f"HR logged across {hr_days} days")
+                self.txt_fit_status.append(f"Body Temp logged across {temp_days} days")
                 
         except Exception as e:
             self.txt_fit_status.append(f"Error: {e}")
@@ -294,7 +298,7 @@ class IntakeFormDialog(QDialog):
         self.f_phq2.setValue(0)
 
     def _pack_state(self):
-        return {
+        payload = {
             "subject_id": self.subject_id_edit.text().strip(),
             "age": self.f_age.value(),
             "sex": self.f_sex.currentText(),
@@ -388,3 +392,6 @@ class IntakeFormDialog(QDialog):
         if "chest_pain" in data: self.f_chest.setCurrentText(data["chest_pain"])
         if "dyspnea" in data: self.f_dyspnea.setCurrentText(data["dyspnea"])
         if "phq2" in data: self.f_phq2.setValue(data["phq2"])
+        
+        if "historical_baseline" in data: 
+            self._historical_data = data["historical_baseline"]
