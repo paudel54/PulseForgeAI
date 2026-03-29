@@ -54,90 +54,88 @@ class GoogleFitFetcher:
             raise Exception("Authentication required before fetching.")
             
         service = build('fitness', 'v1', credentials=self.creds)
+        from googleapiclient.errors import HttpError
 
         # Calculate Timestamps in Milliseconds
         now = datetime.now()
         if timeframe == "1_month":
             start = now - timedelta(days=30)
+            num_days = 30
         else: # default 7_days
             start = now - timedelta(days=7)
+            num_days = 7
             
         end_time_ms = int(now.timestamp() * 1000)
         start_time_ms = int(start.timestamp() * 1000)
 
-        # Build Aggregation Request
-        req_body = {
-            "aggregateBy": [
-                {
-                    "dataTypeName": "com.google.step_count.delta"
-                },
-                {
-                    "dataTypeName": "com.google.calories.expended"
-                },
-                {
-                    "dataTypeName": "com.google.heart_minutes.summary"
-                },
-                {
-                    "dataTypeName": "com.google.heart_rate.bpm"
-                },
-                {
-                    "dataTypeName": "com.google.body.temperature"
-                },
-                {
-                    "dataTypeName": "com.google.sleep.segment",
-                }
-            ],
-            # Group into 1 day buckets
-            "bucketByTime": { "durationMillis": 86400000 },
-            "startTimeMillis": start_time_ms,
-            "endTimeMillis": end_time_ms
-        }
-
-        response = service.users().dataset().aggregate(userId="me", body=req_body).execute()
-        
-        # Parse output into clean dict keyed by date string
         summary = {
             "timeframe": timeframe,
             "days": []
         }
         
-        for bucket in response.get('bucket', []):
-            start_ms = int(bucket.get('startTimeMillis', 0))
-            day_str = datetime.fromtimestamp(start_ms / 1000.0).strftime('%Y-%m-%d')
-            
-            day_data = {
-                "date": day_str,
+        # Pre-allocate day dictionaries
+        for i in range(num_days + 1):
+            d = start + timedelta(days=i)
+            summary["days"].append({
+                "date": d.strftime('%Y-%m-%d'),
                 "steps": 0,
                 "calories": 0.0,
                 "heart_points": 0.0,
                 "avg_bpm": None,
                 "body_temp": None,
                 "sleep_hours": 0.0
+            })
+
+        # Separate REST requests let us gracefully catch "no default datasource"
+        # errors if the test patient doesn't have a smartwatch or track temperature.
+        metrics = [
+            ("steps", "com.google.step_count.delta"),
+            ("calories", "com.google.calories.expended"),
+            ("heart_points", "com.google.heart_minutes.summary"),
+            ("avg_bpm", "com.google.heart_rate.bpm"),
+            ("body_temp", "com.google.body.temperature"),
+            ("sleep", "com.google.sleep.segment")
+        ]
+        
+        for key, type_name in metrics:
+            req_body = {
+                "aggregateBy": [{"dataTypeName": type_name}],
+                "bucketByTime": { "durationMillis": 86400000 },
+                "startTimeMillis": start_time_ms,
+                "endTimeMillis": end_time_ms
             }
             
-            # Loop through datasets (matches order of aggregateBy array)
-            for ds in bucket.get('dataset', []):
-                points = ds.get('point', [])
-                if not points: continue
-                val = points[0].get('value', [{}])[0]
+            try:
+                res = service.users().dataset().aggregate(userId="me", body=req_body).execute()
                 
-                dt_name = ds.get('dataSourceId', '')
-                dt_type = ds.get('dataTypeName', '')
-                
-                if 'step_count' in dt_name or 'step_count' in dt_type:
-                    day_data["steps"] = val.get("intVal", 0)
-                elif 'calories' in dt_name or 'calories' in dt_type:
-                    day_data["calories"] = round(val.get("fpVal", 0.0), 1)
-                elif 'heart_minutes' in dt_name or 'heart_minutes' in dt_type:
-                    day_data["heart_points"] = val.get("fpVal", 0.0)
-                elif 'heart_rate' in dt_name or 'heart_rate' in dt_type:
-                    day_data["avg_bpm"] = round(val.get("fpVal", 0.0), 1)
-                elif 'temperature' in dt_name or 'temperature' in dt_type:
-                    day_data["body_temp"] = round(val.get("fpVal", 0.0), 1)
-                elif 'sleep' in dt_name or 'sleep' in dt_type or len(dt_name) == 0:
-                    sleep_ms = sum([p['endTimeNanos'] - p['startTimeNanos'] for p in points]) / 1000000.0
-                    day_data["sleep_hours"] = round((sleep_ms / 1000.0) / 3600.0, 2)
+                for bucket in res.get('bucket', []):
+                    b_start = int(bucket.get('startTimeMillis', 0))
+                    day_str = datetime.fromtimestamp(b_start / 1000.0).strftime('%Y-%m-%d')
                     
-            summary["days"].append(day_data)
+                    day_data = next((d for d in summary['days'] if d['date'] == day_str), None)
+                    if not day_data: continue
+                    
+                    for ds in bucket.get('dataset', []):
+                        points = ds.get('point', [])
+                        if not points: continue
+                        
+                        val = points[0].get('value', [{}])[0]
+                        if key == "steps":
+                            day_data["steps"] += val.get("intVal", 0)
+                        elif key == "calories":
+                            day_data["calories"] += round(val.get("fpVal", 0.0), 1)
+                        elif key == "heart_points":
+                            day_data["heart_points"] += round(val.get("fpVal", 0.0), 1)
+                        elif key == "avg_bpm":
+                            day_data["avg_bpm"] = round(val.get("fpVal", 0.0), 1)
+                        elif key == "body_temp":
+                            day_data["body_temp"] = round(val.get("fpVal", 0.0), 1)
+                        elif key == "sleep":
+                            sleep_ms = sum([p['endTimeNanos'] - p['startTimeNanos'] for p in points]) / 1.0e6
+                            day_data["sleep_hours"] += round((sleep_ms / 1000.0) / 3600.0, 2)
+                            
+            except HttpError as e:
+                # Silently ignore sensors the user does not possess
+                pass
             
         return summary
