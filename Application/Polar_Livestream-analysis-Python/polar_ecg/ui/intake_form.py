@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 from pathlib import Path
 
 from PyQt5.QtWidgets import (
@@ -226,12 +227,28 @@ class IntakeFormDialog(QDialog):
         self.txt_fit_status.append("Initializing OAuth flow (check web browser)...")
         self.repaint() # Force UI update before blocking call
         
+        class UIStdOutLogger:
+            def __init__(self, callback):
+                self.callback = callback
+            def write(self, s):
+                if s.strip():
+                    self.callback(s)
+            def flush(self):
+                pass
+                
+        def on_print(msg):
+            self.txt_fit_status.append(msg.strip())
+            self.repaint()
+        
+        old_stdout = sys.stdout
+        sys.stdout = UIStdOutLogger(on_print)
+        
         try:
             from polar_ecg.utils.google_fit_fetcher import GoogleFitFetcher
             fetcher = GoogleFitFetcher(client_secret_path=self._client_secret_path)
             
             if fetcher.authenticate():
-                self.txt_fit_status.append("Authenticated successfully. Fetching data...")
+                self.txt_fit_status.append("\nAuthenticated successfully. Fetching data...")
                 self.repaint()
                 
                 tf = self.f_timeframe.currentText()
@@ -248,6 +265,8 @@ class IntakeFormDialog(QDialog):
                 
         except Exception as e:
             self.txt_fit_status.append(f"Error: {e}")
+        finally:
+            sys.stdout = old_stdout
 
     def _clear_form(self):
         self.subject_id_edit.clear()

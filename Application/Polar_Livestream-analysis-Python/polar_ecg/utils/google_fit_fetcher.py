@@ -69,20 +69,16 @@ class GoogleFitFetcher:
         req_body = {
             "aggregateBy": [
                 {
-                    "dataTypeName": "com.google.step_count.delta",
-                    "dataSourceId": "derived:com.google.step_count.delta:com.google.android.gms:estimated_steps"
+                    "dataTypeName": "com.google.step_count.delta"
                 },
                 {
-                    "dataTypeName": "com.google.calories.expended",
-                    "dataSourceId": "derived:com.google.calories.expended:com.google.android.gms:merge_calories_expended"
+                    "dataTypeName": "com.google.calories.expended"
                 },
                 {
-                    "dataTypeName": "com.google.heart_minutes.summary",
-                    "dataSourceId": "derived:com.google.heart_minutes.summary:com.google.android.gms:merge_heart_minutes"
+                    "dataTypeName": "com.google.heart_minutes.summary"
                 },
                 {
-                    "dataTypeName": "com.google.heart_rate.bpm",
-                    "dataSourceId": "derived:com.google.heart_rate.bpm:com.google.android.gms:merge_heart_rate_bpm"
+                    "dataTypeName": "com.google.heart_rate.bpm"
                 },
                 {
                     "dataTypeName": "com.google.body.temperature"

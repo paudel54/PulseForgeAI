@@ -18,3 +18,7 @@ exports/
 
 # Scratch / debug scripts
 test_mqtt.py
+
+# OAuth Credentials
+token.json
+client_secret.json
