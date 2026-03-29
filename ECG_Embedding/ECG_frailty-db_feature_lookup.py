@@ -628,7 +628,7 @@ if __name__ == "__main__":
     OUTPUT_PARQUET   = "ecg_fm_lookup_table.parquet"
     CHUNK_SIZE       = 32   # segments per GPU forward pass — reduce if OOM
     NUM_WORKERS      = 4
-    DEVICE           = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    DEVICE           = torch.device("cpu")
 
     print(f"Using device: {DEVICE}")
 
@@ -672,6 +672,10 @@ if __name__ == "__main__":
     # ── Model ─────────────────────────────────────────────────────────────────
     print(f"\nLoading model ...")
     model, cfg, task = build_model_from_checkpoint(CHECKPOINT_PATH, DEVICE)
+    # force all operations through CPU-compatible paths
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32       = False
+    
     print(f"Model    : {type(model).__name__}")
     print(f"Params   : {sum(p.numel() for p in model.parameters()):,}")
 
