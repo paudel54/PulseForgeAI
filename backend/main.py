@@ -26,6 +26,13 @@ DB_PATH = "/tmp/chroma_db" if os.environ.get("VERCEL") == "1" else "./chroma_db"
 chroma_client = chromadb.PersistentClient(path=DB_PATH)
 collection = chroma_client.get_or_create_collection(name="medical_docs")
 
+# Initialize FM Cohorts Integration if it exists
+try:
+    cohort_collection = chroma_client.get_collection(name="patient_cohorts")
+except ValueError:
+    # Not yet instantiated
+    cohort_collection = None
+
 # Configuration for local Ollama - Supports tunneling via ngrok on Vercel
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
 # MODEL_NAME = "hf.co/unsloth/medgemma-4b-it-GGUF:Q4_K_M" # Change to your pulled model
@@ -120,6 +127,21 @@ async def process_query(req: QueryRequest):
         
         retrieved_context = "\n\n".join(context_parts) if context_parts else "No relevant medical context found in the database."
         
+        # 1.5 Multi-Modal Foundation Model Similar Patient Retrieval
+        cohort_context = ""
+        mock_embedding_path = os.path.join(os.path.dirname(__file__), "mock_patient_embedding.json")
+        if cohort_collection and os.path.exists(mock_embedding_path):
+            try:
+                with open(mock_embedding_path, "r") as f:
+                    mock_emb = json.load(f)
+                cohort_results = cohort_collection.query(query_embeddings=[mock_emb], n_results=3)
+                if cohort_results and cohort_results.get('metadatas') and cohort_results['metadatas'][0]:
+                    cohort_context = "\nIdentical ECG-Waveform Historical Patient Matches (KNN Similarity):\n"
+                    for idx, meta in enumerate(cohort_results['metadatas'][0]):
+                        cohort_context += f"- Patient {idx+1}: Frailty/Activity: '{meta.get('exercise_label', 'Unknown')}', RMSSD: {meta.get('hrv_rmssd', 'N/A')}ms, Gait Velocity: {meta.get('max_gait_velocity', 'Unknown')}cm/s\n"
+            except Exception as e:
+                cohort_context = f"\n[!] Cohort Engine Error: {str(e)}\n"
+        
         # 2. Construct Prompt dynamically based on Role
         if getattr(req, "role", "doctor") == "patient":
             system_role = (
@@ -144,6 +166,7 @@ Patient Physiological Data & History (Polar H10):
 
 Knowledge Base Context (from uploaded medical documents):
 {retrieved_context}
+{cohort_context}
 
 User Query:
 {req.query}
