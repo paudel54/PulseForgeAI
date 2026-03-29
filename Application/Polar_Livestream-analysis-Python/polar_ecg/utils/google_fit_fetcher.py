@@ -189,7 +189,6 @@ class GoogleFitFetcher:
             sleep_res = service.users().dataset().aggregate(userId="me", body=sleep_req).execute()
             
             for bucket in sleep_res.get('bucket', []):
-                # Using bucket boundary to associate with day
                 b_start = int(bucket.get('startTimeMillis', 0))
                 day_str = datetime.fromtimestamp(b_start / 1000.0).strftime('%Y-%m-%d')
                 
@@ -215,19 +214,41 @@ class GoogleFitFetcher:
                         elif stage_enum in (2, 6):
                             day_data["sleep_stages"]["awake"] += dur_hrs
                             
-                        # Total sleep excludes awake times
-                        if stage_enum not in (2, 6):
-                            day_data["sleep_hours"] += dur_hrs
-                            
-            # Round out the precision
-            for d in summary['days']:
-                d["sleep_hours"] = round(d["sleep_hours"], 2)
-                d["sleep_stages"]["deep"] = round(d["sleep_stages"]["deep"], 2)
-                d["sleep_stages"]["light"] = round(d["sleep_stages"]["light"], 2)
-                d["sleep_stages"]["rem"] = round(d["sleep_stages"]["rem"], 2)
-                d["sleep_stages"]["awake"] = round(d["sleep_stages"]["awake"], 2)
-                
         except Exception as e:
             print(f"Failed to fetch sleep stages: {e}")
+
+        # --- Fetch Total Sleep via Sessions API (Fallback for devices without segments) ---
+        try:
+            start_iso = start.strftime('%Y-%m-%dT%H:%M:%S.000Z')
+            end_iso = now.strftime('%Y-%m-%dT%H:%M:%S.000Z')
+            
+            sessions_res = service.users().sessions().list(
+                userId="me", 
+                startTime=start_iso,
+                endTime=end_iso,
+                activityType=72
+            ).execute()
+            
+            for session in sessions_res.get('session', []):
+                s_start = int(session.get('startTimeMillis', 0))
+                s_end = int(session.get('endTimeMillis', 0))
+                if s_start == 0 or s_end == 0: continue
+                
+                day_str = datetime.fromtimestamp(s_start / 1000.0).strftime('%Y-%m-%d')
+                day_data = next((d for d in summary['days'] if d['date'] == day_str), None)
+                if day_data:
+                    sleep_hours = (s_end - s_start) / 3600000.0
+                    day_data["sleep_hours"] += sleep_hours
+                    
+        except Exception as e:
+            print(f"Failed to fetch sleep sessions: {e}")
+
+        # Round out the precision
+        for d in summary['days']:
+            d["sleep_hours"] = round(d["sleep_hours"], 2)
+            d["sleep_stages"]["deep"] = round(d["sleep_stages"]["deep"], 2)
+            d["sleep_stages"]["light"] = round(d["sleep_stages"]["light"], 2)
+            d["sleep_stages"]["rem"] = round(d["sleep_stages"]["rem"], 2)
+            d["sleep_stages"]["awake"] = round(d["sleep_stages"]["awake"], 2)
             
         return summary

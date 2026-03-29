@@ -1,117 +1,102 @@
-# Polar ECG Dashboard: Real-Time Biosignal Analytics Platform
+<div align="center">
+  <h1>Talk to Your Heart (PulseForgeAI)</h1>
+  <p><strong>On-Campus Cardiac Virtual Rehab — Powered by Edge AI on DGX Spark</strong></p>
+  <p>
+    <a href="#architecture">Architecture</a> •
+    <a href="#key-features">Features</a> •
+    <a href="#quickstart">Quickstart</a> •
+    <a href="#clinical-ai">Clinical Agents</a>
+  </p>
+</div>
 
-## Abstract
+Cardiac rehabilitation reduces mortality by 13% and hospitalizations by 31%, but only 24% of eligible patients ever attend a session. Clinics lack the supervision bandwidth to run multi-patient sessions safely. Current telemetry solutions rely on cloud endpoints, which introduce HIPAA compliance risks, unpredictable latency, and vendor lock-in.
 
-The **Polar ECG Dashboard** is a high-performance, multithreaded Python application designed for real-time acquisition, visualization, and physiological analysis of biosignals from the Polar H10 chest strap. Built to serve as a foundation for advanced AI/ML cardiovascular research, it emphasizes zero-copy memory management, low-latency rendering, and robust Bluetooth Low Energy (BLE) stream handling. The platform extracts native 130 Hz Electrocardiogram (ECG), 100 Hz tri-axial Accelerometry (ACC), and 1 Hz Heart Rate (HR) data, performing rolling Heart Rate Variability (HRV) analysis and beat-by-beat ECG delineation.
+**PulseForgeAI** is an intelligent supervision system that lives entirely on-campus. It ingests live physiologic data from Polar H10 chest straps, processes signal patterns using local foundation models, and coordinates three distinct local LLM agents to provide real-time patient coaching and clinical documentation. Patient data never leaves the building.
 
-## System Architecture
+## 🧠 The Architecture
 
-The application is structured into four primary decoupled layers, orchestrated via Qt's signal-slot mechanism across multiple threads to ensure UI fluidity during I/O and heavy computation.
-
-### 1. Data Acquisition Layer (`ble_worker.py`)
-
-- **Library Stack**: Uses `bleak` for asynchronous BLE communication and `bleakheart` for parsing Polar Measurement Data (PMD) byte streams.
-- **Worker Model**: Runs in an isolated `QThread` utilizing an internal `asyncio` event loop.
-- **Robustness Strategy**: The Polar H10's PMD service is notorious for silent failures (accepting `START` commands but never emitting data) on certain OS stacks (e.g., Windows). Our BLE worker implements a hardened state machine:
-  1. **HR-First Synchronization**: Waits for the first real HR notification to ensure the BLE link is "warm" and electrodes have skin contact.
-  2. **MTU Negotiation**: Requests an ATT MTU of 247 bytes to prevent fragmentation bottlenecks for high-bandwidth ECG frames.
-  3. **PMD Priming**: Triggers `available_settings` reads to force the BLE stack to register the PMD control point notifications *before* sending streaming commands.
-  4. **Frame Verification & Retries**: Employs a strict timeout (e.g., 8 seconds for ECG). If the first decoded frame isn't received, it issues a `STOP` command, pauses, and retries up to 4 times per modality.
-
-### 2. Signal Processing Layer (`processing_worker.py`)
-
-- **Bandpass Filtering**: 4th-order Butterworth bandpass (0.5–40 Hz) applied to the raw 130 Hz ECG stream before any analysis.
-- **Signal Quality Index (SQI)**: Three-metric pipeline evaluated over 5-second windows:
-  - **NeuroKit2** template-matching SQI (primary driver of the dashboard quality label)
-  - **QRS Band Energy** via Welch PSD (5–15 Hz / 1–40 Hz power ratio)
-  - **Vital Kurtosis** from the `vital_sqi` package
-- **SQI Thresholds**: Good (≥ 0.6), Fair (0.3–0.6), Poor (≤ 0.3)
-- **HRV Analytics (Time & Frequency Domain)**:
-  - Extracts R-peaks using `neurokit2` (`nk.ecg_peaks`).
-  - Computes time-domain metrics (RMSSD, SDNN, Mean HR) on a rolling 30-second window.
-  - Computes frequency-domain metrics (LF/HF ratio) utilizing the **Lomb-Scargle periodogram** (`pyhrv.frequency_domain.lomb_psd`).
-- **Morphological Delineation**: Uses Discrete Wavelet Transform (DWT) via `neurokit2` (`method="dwt"`) to dynamically delineate P, QRS, and T wave onsets and offsets. Computes P-width, QRS-width, ST-segment, QT-interval, and QTc (Bazett's corrected).
-
-### 3. UI and Memory Management Layer (`dashboard.py`, `intake_form.py` & `ring_buffer.py`)
-
-- **Patient Intake Form**: A comprehensive 15-question Patient Intake form capturing Demographics, Clinical History, and Risk/Symptoms. The form auto-loads previously saved responses from `intake_state.json` and supports loading from external JSON files.
-- **Rendering Engine**: `pyqtgraph` stacked plots with shared X-axes and peak-decimation downsampling (`antialias=False`, `setDownsampling(mode="peak")`).
-- **Memory Optimization**: Custom `RingBuffer` backed by contiguous `np.ndarray` memory with slice-based concatenation for near zero-copy reads at 30 FPS.
-
-### 4. Real-Time Telemetry & Export (`mqtt_worker.py` & `data_exporter.py`)
-
-- **JSON Telemetry Exporter**: Automatically initializes a session folder upon pressing "Record". Saves Intake Metadata and appends synchronous 5-second `window_result` dictionaries to a local JSON file.
-- **Unified MQTT Streaming**: A background `QThread` publishes to `broker.emqx.io` via `paho-mqtt`. Every 5 seconds it pushes a consolidated JSON payload over `pulseforgeai/{subject_id}/raw` containing the raw 130 Hz ECG array tightly bundled with all computed SQI, HRV, morphology, and accelerometer metrics for that exact window.
-
-## Extracted Physiological Metrics
-
-The pipeline outputs the following metrics updated periodically:
-
-- **Time-Domain HRV**: RMSSD (ms), SDNN (ms)
-- **Frequency-Domain HRV**: LF/HF Ratio
-- **Basic Vitals**: Mean HR (bpm), VO2max estimation
-- **ECG Morphology**: P-Wave Width (ms), QRS Complex Width (ms), ST Segment Duration (ms), QT/QTc Interval (Bazett) (ms)
-- **Signal Quality**: SQI (3-Tier: Good/Fair/Poor), QRS Band Energy, NeuroKit2 SQI, Vital Kurtosis
-- **Accelerometer HAR**: Mean magnitude (mg), variance, spectral entropy, median frequency (Hz)
-
-## Codebase Structure
+By deploying to the **NVIDIA DGX Spark (128 GB Unified LPDDR5x)**, we bypass PCIe transfer bottlenecks. Real-time CPU signal processing directly hands off to GPU-bound vLLM instances in a zero-copy loop.
 
 ```text
-polar_ecg/
-├── ui/
-│   ├── dashboard.py          # PyQt5 main window, layout, and 30FPS plotting timer
-│   └── intake_form.py        # Comprehensive multi-tab patient intake dialog
-├── workers/
-│   ├── ble_worker.py         # Hardened async BLE acquisition (QThread)
-│   ├── processing_worker.py  # Bandpass filter, SQI, DWT delineation, Lomb-Scargle HRV
-│   └── mqtt_worker.py        # Paho-MQTT v2 unified streaming (QThread)
-├── utils/
-│   ├── data_exporter.py      # Local JSON session recording
-│   ├── ring_buffer.py        # Numpy-backed circular buffer for zero-copy rendering
-│   ├── mock_sensor.py        # Synthetic PQRST/ACC generator for offline testing
-│   └── constants.py          # Centralized configuration (rates, colors, timeouts)
-└── main.py                   # Application entry point
+                             NVIDIA DGX Spark
+                (Zero Egress • 128GB Unified Memory • Blackwell)
++=============================================================================+
+|                                                                             |
+| +-----------+  BLE   +----------------+  MQTT   +------------------------+  |
+| | Polar H10 |------->| Signal Engine  |-------->| Mosquitto Local Broker |  |
+| | (130 Hz)  |        | (NeuroKit2)    |         | patient/{id}/vitals    |  |
+| +-----------+        | SQI + Padding  |         +----------+-------------+  |
+|                      +-------+--------+              sub   v                |
+|                              |                             |                |
+| +----------------------------v-----+       +---------------+-------------+  |
+| | ChromaDB (Knowledge Base)        |       | Lead Orchestrator Router    |  |
+| | • RAG Medical Literature         |       +---+-----------+-----------+-+  |
+| | • Historical Vitals              |           |           |           |    |
+| | • Intake Telemetry (Google Fit)  |           v           v           v    |
+| +----------------------------------+       +-------+   +-------+   +-------+|
+|                                            | Nurse |   | Duty  |   | Asst  ||
+|                                            | Qwen3 |   | Gemma |   | Gemma ||
+|                                            +-------+   +-------+   +-------+|
++=============================================================================+
 ```
 
-## Setup & Execution
+## ⚡ Core Capabilities
+
+1. **Continuous ECG Processing (130 Hz):**
+   - Pan-Tompkins + Hamilton consensus QRS detection. 
+   - ECG morphology delineation (DWT method): QRS width, QT interval, ST deviation.
+   - Beat-to-beat HRV metrics (SDNN, RMSSD, pNN50, LF/HF).
+   - High-fidelity **Historical Google Fit Baseline Integration** (15-min bucketing for HR, Body Temp, and segmented sleep stages).
+
+2. **Hardware-Enforced HIPAA Compliance:**
+   - No cloud orchestration. No third-party API keys. The entire stack—from MQTT to 72B foundation models—runs inside the physical walls of the clinic.
+
+3. **Multi-Agent Clinical Roles:**
+   - **Nurse Agent (Qwen3):** Patient-facing interface limited strictly to wellness phrasing and positive reinforcement.
+   - **Duty Doctor Agent (MedGemma-27B):** Generates structured SOAP notes conditioned on continuous Signal Quality Index (SQI) scores.
+   - **Clinical Assistant (MedGemma-27B):** Provides the clinician interrogative access to a patient's historical vitals and guidelines via local RAG retrieval.
+
+4. **Deterministic Safety Guardrails:**
+   - LLMs *do not* generate alarms. A deterministic, threshold-driven "Energy Safe Window" evaluates age, high-resolution historical intake, and real-time MET estimations before any automated response occurs.
+
+## 🚀 Quickstart
 
 ### Prerequisites
+- **Hardware**: NVIDIA DGX Spark (or equivalent >80GB VRAM system for full stack testing).
+- **Software**: Python 3.10+, Docker (for vLLM), Local Mosquitto Broker.
 
-Tested on Python 3.12+ (Conda environment recommended).
+### 1. Model Deployment (vLLM)
+PulseForgeAI requires the Foundation and Clinical LLMs bound to specific local ports.
 
 ```bash
+# Primary Agent (Qwen2.5)
+docker run --gpus all -v /models:/models -p 8000:8000 nvcr.io/nvidia/vllm:latest \
+  --model /models/Qwen2.5-72B-Instruct-AWQ --quantization awq --max-model-len 32768
+
+# Clinical Agent (MedGemma)
+docker run --gpus all -v /models:/models -p 8001:8001 nvcr.io/nvidia/vllm:latest \
+  --model /models/MedGemma-27B-IT --quantization awq --port 8001
+```
+
+### 2. Environment Setup
+```bash
+git clone https://github.com/paudel54/PulseForgeAI.git
+cd PulseForgeAI/Application/Polar_Livestream-analysis-Python
 pip install -r requirements.txt
 ```
 
-### Running the Application
-
-**Hardware Mode (Requires Polar H10):**
+### 3. Launch the Pipeline
+*To execute the full telemetry GUI with Google Fit Intake integration and MQTT live-streaming:*
 
 ```bash
 python main.py
 ```
 
-*Workflow: Click "Scan" → Select "Polar H10 XXXX" → Click "Connect" → Click "Start Recording" to begin MQTT stream.*
+## 🛡️ Clinical Design Philosophy
 
-**Simulation Mode (No hardware required):**
+Clinical charting traditionally forces providers to reconstruct patient states from memory. PulseForgeAI flips this paradigm. By capturing high-density continuous physiological data and gating it behind real-time SQI evaluations, the system transforms a live rehab session into verifiable administrative documentation automatically. 
 
-```bash
-python main.py --mock
-```
+Our benchmark target: **80-87% reduction in SOAP note authoring time**, expanding concurrent nurse supervision capacity from 3 patients to 8 patients.
 
-*Workflow: Click "Mock Sensor" to stream synthetic 130 Hz ECG and 100 Hz ACC data.*
-
-### Monitoring MQTT Output
-
-Subscribe to the live telemetry using any MQTT client (e.g., [MQTTX](https://mqttx.app/)):
-
-```
-Broker:  broker.emqx.io
-Port:    1883
-Topic:   pulseforgeai/#
-```
-
-## Future Work & Roadmap
-
-- **ECG Foundation Model (CLEF) Integration**: Route 5-second MQTT ECG windows through the [Nokia Bell Labs CLEF model](https://github.com/Nokia-Bell-Labs/ecg-foundation-model) for zero-shot diagnostic predictions (LVEF, arrhythmia classification, BP estimation).
-- **DGX Spark Deployment**: Migrate the MQTT subscriber and multi-agent AI pipeline to on-premise NVIDIA DGX Spark for HIPAA-compliant inference.
+---
+*Disclaimer: Research and development prototype only. Not currently FDA-cleared as a Software as a Medical Device (SaMD).*
