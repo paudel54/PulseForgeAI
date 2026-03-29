@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+chromadb
+pypdf
+requests
+python-multipart
