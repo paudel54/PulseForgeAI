@@ -215,6 +215,27 @@ async def process_query(req: QueryRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/live/metrics")
+async def get_live_metrics():
+    """
+    Poll endpoint for the Vercel UI to visualize live MQTT sensor arrays.
+    """
+    if not live_patients_collection:
+        return {"hr": "--", "hrv": "--", "status": "Offline"}
+    try:
+        live_res = live_patients_collection.get(ids=["S000_raw"])
+        if live_res and live_res.get('documents') and live_res['documents']:
+            data = json.loads(live_res['documents'][0])
+            hr = data.get("heart_rate", {}).get("avg_bpm_ecg")
+            if hr is None: hr = "--"
+            hrv = data.get("hrv", {}).get("rmssd_ms", "--")
+            if hrv != "--": hrv = round(hrv, 1)
+            act = data.get("accelerometer", {}).get("activity", {}).get("label", "Unknown").replace("_", " ").title()
+            return {"hr": hr, "hrv": hrv, "status": act}
+    except Exception:
+        pass
+    return {"hr": "--", "hrv": "--", "status": "Waiting..."}
+
 @app.get("/api/session/{patient_id}/soap")
 async def generate_soap_note(patient_id: str):
     """

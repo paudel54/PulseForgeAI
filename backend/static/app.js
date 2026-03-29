@@ -434,4 +434,34 @@ document.addEventListener('DOMContentLoaded', () => {
         printWindow.document.close();
     };
 
+    // ---- Live MQTT Metric Polling ----
+    async function pollLiveMetrics() {
+        try {
+            const res = await fetch('/api/live/metrics');
+            const data = await res.json();
+
+            document.getElementById('live-hr').innerHTML = `${data.hr} <small>bpm</small>`;
+            document.getElementById('live-hrv').innerHTML = `${data.hrv} <small>ms</small>`;
+
+            const statusEl = document.getElementById('live-status');
+            statusEl.textContent = data.status;
+
+            if (data.status === 'Offline' || data.status === 'Waiting...') {
+                statusEl.className = 'vital-value';
+                document.querySelector('.pulse-dot').style.animation = 'none';
+                document.querySelector('.pulse-dot').style.backgroundColor = '#ccc';
+            } else {
+                statusEl.className = 'vital-value status-ok';
+                document.querySelector('.pulse-dot').style.animation = 'pulse 1.5s infinite';
+                document.querySelector('.pulse-dot').style.backgroundColor = 'var(--accentPrimary)';
+            }
+        } catch (e) {
+            console.error("Live metrics polling failed", e);
+        }
+    }
+
+    // Begin Live Polling Stream
+    setInterval(pollLiveMetrics, 3000);
+    pollLiveMetrics();
+
 });
