@@ -565,6 +565,16 @@ class MainDashboard(QMainWindow):
         self._inst_hr_lbl.setFont(QFont("Consolas", 11))
         self._inst_hr_lbl.setStyleSheet(f"color: {DARK_THEME['secondary']};")
         sqi_grid.addWidget(self._inst_hr_lbl, 5, 0)
+        
+        act_hdr = QLabel("HAR Activity")
+        act_hdr.setFont(QFont("Segoe UI", 9, QFont.Bold))
+        act_hdr.setStyleSheet(f"color: {DARK_THEME['text_dim']};")
+        sqi_grid.addWidget(act_hdr, 4, 1)
+
+        self._act_lbl = QLabel("--")
+        self._act_lbl.setFont(QFont("Consolas", 10))
+        self._act_lbl.setStyleSheet(f"color: {DARK_THEME['secondary']};")
+        sqi_grid.addWidget(self._act_lbl, 5, 1)
 
         sqi_grid.setRowStretch(6, 1)
         tabs.addTab(sqi_tab, "Quality")
@@ -902,6 +912,15 @@ class MainDashboard(QMainWindow):
         inst_hr = result.get("instant_hr")
         self._inst_hr_lbl.setText(f"{inst_hr:.1f} bpm" if inst_hr is not None else "--")
 
+        har_act = result.get("har_activity", {})
+        act_label = har_act.get("label", "unknown")
+        act_title = act_label.replace("_", " ").title() if act_label != "unknown" else "--"
+        if act_label != "unknown":
+            max_conf = max(list(har_act.get("confidence", {}).values()) or [0])
+            self._act_lbl.setText(f"{act_title} ({max_conf:.0%})")
+        else:
+            self._act_lbl.setText("--")
+
         # Export window if recording
         if self._exporter.is_recording:
             self._export_window(result)
@@ -939,8 +958,9 @@ class MainDashboard(QMainWindow):
             qtc_ms         = hrv.get("qtc_width"),
             st_ms          = hrv.get("st_width"),
             p_ms           = hrv.get("p_width"),
-            # Full ACC HAR feature set
+            # Full ACC HAR feature set and Activity State
             acc_features   = acc_features,
+            har_activity   = window_result.get("har_activity", {}),
         )
         self._exporter.append_window(payload)
         

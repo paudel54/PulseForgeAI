@@ -117,6 +117,8 @@ class DataExporter:
         p_ms: Optional[float] = None,
         # Accelerometer HAR feature dict (produced by compute_acc_har_features)
         acc_features: Optional[dict] = None,
+        # PyTorch unified HAR activity inference
+        har_activity: Optional[dict] = None,
     ) -> dict:
         """Build a structured payload dict ready for `append_window()`."""
 
@@ -149,8 +151,10 @@ class DataExporter:
                 "st_ms":  _r(st_ms, 1),
                 "p_ms":   _r(p_ms, 1),
             },
-            # Full ACC HAR feature set (may be empty dict if no data yet)
-            "accelerometer": acc_features or {},
+            "accelerometer": {
+                "features": acc_features or {},
+                "activity": har_activity or {"label": "unknown", "confidence": {}}
+            }
         }
 
         return payload

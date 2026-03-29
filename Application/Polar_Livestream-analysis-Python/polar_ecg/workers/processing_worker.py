@@ -17,11 +17,13 @@ import matplotlib
 matplotlib.use('Agg')  # keep pyhrv from opening windows in the background thread
 
 import time
+import os
 import numpy as np
 from collections import deque
 
 from PyQt5.QtCore import QObject, pyqtSignal
 
+from polar_ecg.utils.har_inference import HARInferenceEngine
 from polar_ecg.utils.constants import (
     ECG_NATIVE_HZ,
     ACC_HZ,
@@ -30,6 +32,7 @@ from polar_ecg.utils.constants import (
 
 _5S_ECG_SAMPLES  = ECG_NATIVE_HZ * 5    # 650
 _5S_ACC_SAMPLES  = ACC_HZ * 5           # 500
+_10S_ACC_SAMPLES = ACC_HZ * 10          # 1000
 _30S_ECG_SAMPLES = ECG_NATIVE_HZ * 30   # 3 900
 
 
@@ -141,6 +144,7 @@ class ProcessingWorker(QObject):
 
         self._ecg_buffer = deque(maxlen=ECG_NATIVE_HZ * buffer_seconds)
         # Separate per-axis ACC deques for efficiency
+        # We need at least 10s of ACC for the PyTorch HAR models
         self._acc_x_buf  = deque(maxlen=ACC_HZ * buffer_seconds)
         self._acc_y_buf  = deque(maxlen=ACC_HZ * buffer_seconds)
         self._acc_z_buf  = deque(maxlen=ACC_HZ * buffer_seconds)
@@ -170,6 +174,18 @@ class ProcessingWorker(QObject):
     def run(self):
         self._running = True
         self.status.emit("Processing worker started")
+        
+        # Instantiate HAR inference engine inside the thread
+        try:
+            repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..'))
+            act_dir = os.path.join(repo_root, 'Act_Recoginition')
+            self.status.emit("Loading PyTorch HAR Fusion Model...")
+            self.har_engine = HARInferenceEngine(act_dir)
+            self.status.emit("HAR Models loaded successfully.")
+        except Exception as e:
+            self.har_engine = None
+            self.status.emit(f"Failed to load HAR models: {e}")
+
         while self._running:
             self._maybe_run_5s_window()
             self._maybe_run_hrv()
@@ -192,16 +208,24 @@ class ProcessingWorker(QObject):
         self._last_5s_time = now
         ecg_5s = np.array(list(self._ecg_buffer)[-_5S_ECG_SAMPLES:], dtype=np.float64)
 
-        # Build ACC snapshot; may be empty early in a session
+        # Build ACC snapshots (5s for features, 10s for ML inference)
         acc_xyz = None
+        acc_10s = None
+        
         if len(self._acc_x_buf) >= _5S_ACC_SAMPLES:
             x = np.array(list(self._acc_x_buf)[-_5S_ACC_SAMPLES:])
             y = np.array(list(self._acc_y_buf)[-_5S_ACC_SAMPLES:])
             z = np.array(list(self._acc_z_buf)[-_5S_ACC_SAMPLES:])
             acc_xyz = np.column_stack([x, y, z])
+            
+        if len(self._acc_x_buf) >= _10S_ACC_SAMPLES:
+            x10 = np.array(list(self._acc_x_buf)[-_10S_ACC_SAMPLES:])
+            y10 = np.array(list(self._acc_y_buf)[-_10S_ACC_SAMPLES:])
+            z10 = np.array(list(self._acc_z_buf)[-_10S_ACC_SAMPLES:])
+            acc_10s = np.column_stack([x10, y10, z10])
 
         try:
-            result = self._compute_5s_window(ecg_5s, acc_xyz)
+            result = self._compute_5s_window(ecg_5s, acc_xyz, acc_10s)
             result["timestamp"] = now
             self.window_result.emit(result)
         except Exception as exc:
@@ -215,7 +239,7 @@ class ProcessingWorker(QObject):
                 "error":       str(exc),
             })
 
-    def _compute_5s_window(self, ecg_5s: np.ndarray, acc_xyz) -> dict:
+    def _compute_5s_window(self, ecg_5s: np.ndarray, acc_xyz, acc_10s=None) -> dict:
         import neurokit2 as nk
         import scipy.signal
 
@@ -290,6 +314,14 @@ class ProcessingWorker(QObject):
 
         # ACC HAR features
         acc_features = compute_acc_har_features(acc_xyz, fs=float(ACC_HZ))
+        
+        # PyTorch HAR Inference
+        har_activity = {"label": "unknown", "confidence": {}}
+        if getattr(self, "har_engine", None) is not None and acc_10s is not None:
+            try:
+                har_activity = self.har_engine.predict(acc_10s)
+            except Exception as e:
+                pass
 
         return {
             "sqi":          round(sqi, 4)        if sqi is not None        else None,
@@ -297,6 +329,7 @@ class ProcessingWorker(QObject):
             "instant_hr":   round(instant_hr, 1) if instant_hr is not None else None,
             "n_r_peaks":    int(len(r_peaks)),
             "acc_features": acc_features,
+            "har_activity": har_activity,
             "raw_ecg":      ecg_cleaned.tolist() if 'ecg_cleaned' in locals() else ecg_5s.tolist(),
         }
 
