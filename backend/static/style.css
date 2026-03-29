@@ -885,3 +885,156 @@ textarea#query-input::placeholder {
         max-width: 95%;
     }
 }
+
+/* === ROLE TABS === */
+.role-tabs {
+    display: inline-flex;
+    background: rgba(0, 0, 0, 0.4);
+    border-radius: 20px;
+    padding: 4px;
+    border: 1px solid var(--border);
+}
+
+.role-tab {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    padding: 6px 16px;
+    border-radius: 16px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.25s;
+}
+
+.role-tab.active {
+    background: var(--primary);
+    color: #fff;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.report-btn {
+    border-color: var(--primary);
+    color: var(--primary);
+    display: flex;
+}
+
+.generate-pdf-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    background: rgba(45, 212, 191, 0.15);
+    border: 1px solid var(--primary);
+    color: var(--primary);
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: var(--font);
+}
+
+.generate-pdf-btn i {
+    width: 14px;
+    height: 14px;
+}
+
+.generate-pdf-btn:hover {
+    background: var(--primary);
+    color: #fff;
+    box-shadow: 0 4px 12px rgba(45, 212, 191, 0.4);
+}
+
+/* === PATIENT THEME (RELAXING LIGHT GREEN/BLUE) === */
+body.theme-patient .sidebar {
+    display: none !important;
+}
+
+body.theme-patient {
+    --bg: #fdfdfd;
+    /* Clean warm white */
+    --panel: rgba(255, 255, 255, 0.95);
+    --panel-solid: #ffffff;
+    --border: rgba(14, 165, 233, 0.15);
+    --primary: #0ea5e9;
+    /* Sky blue */
+    --primary-end: #10b981;
+    /* Emerald green */
+    --text: #0f172a;
+    /* Slate 900 for high readability */
+    --muted: #64748b;
+    --danger: #ef4444;
+    --success: #10b981;
+    background-image:
+        radial-gradient(ellipse 60% 50% at 10% 50%, rgba(16, 185, 129, 0.1), transparent),
+        radial-gradient(ellipse 50% 40% at 90% 20%, rgba(14, 165, 233, 0.1), transparent);
+}
+
+body.theme-patient .brand-logo,
+body.theme-patient .agent-avatar,
+body.theme-patient .send-btn {
+    color: #ffffff;
+}
+
+body.theme-patient .generate-pdf-btn {
+    background: rgba(14, 165, 233, 0.1);
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+body.theme-patient .generate-pdf-btn:hover {
+    background: var(--primary);
+    color: #fff;
+    box-shadow: 0 4px 12px rgba(14, 165, 233, 0.4);
+}
+
+body.theme-patient .role-tabs {
+    background: rgba(255, 255, 255, 0.9);
+    border-color: rgba(14, 165, 233, 0.2);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+}
+
+body.theme-patient .role-tab {
+    color: var(--muted);
+}
+
+body.theme-patient .role-tab.active {
+    background: var(--primary);
+    color: #fff;
+}
+
+body.theme-patient .icon-btn {
+    background: rgba(255, 255, 255, 0.9);
+    border-color: rgba(14, 165, 233, 0.2);
+    color: var(--text);
+}
+
+body.theme-patient .icon-btn:hover {
+    background: #fff;
+}
+
+body.theme-patient .input-wrapper {
+    background: rgba(255, 255, 255, 0.9);
+    border-color: rgba(14, 165, 233, 0.2);
+}
+
+body.theme-patient .message-content {
+    background: #ffffff;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+    border-color: var(--border);
+}
+
+body.theme-patient .user-message .message-content {
+    background: rgba(14, 165, 233, 0.08);
+    border-color: rgba(14, 165, 233, 0.15);
+}
+
+body.theme-patient .context-preview {
+    background: rgba(14, 165, 233, 0.05);
+    color: var(--text);
+}
+
+body.theme-patient .action-btn:hover {
+    background: rgba(14, 165, 233, 0.1);
+}

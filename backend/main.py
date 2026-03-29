@@ -23,9 +23,9 @@ MODEL_NAME = "alibayram/medgemma:27b" # Change to your pulled model
 
 class QueryRequest(BaseModel):
     query: str
-    patient_data: dict # Dummy Polar H10 Data
-    # model: str = "hf.co/unsloth/medgemma-4b-it-GGUF:Q4_K_M"
+    patient_data: dict # Dummy Polar H10 Data + History
     model: str = MODEL_NAME
+    role: str = "doctor"
 
 @app.post("/upload")
 async def upload_document(file: UploadFile = File(...)):
@@ -102,11 +102,25 @@ async def process_query(req: QueryRequest):
         
         retrieved_context = "\n".join(results['documents'][0]) if results['documents'] else "No relevant medical context found in the database."
         
-        # 2. Construct Prompt for MedGemma
-        prompt = f"""
-You are a knowledgeable clinical assistant specializing in cardiac rehabilitation and physiology.
+        # 2. Construct Prompt dynamically based on Role
+        if getattr(req, "role", "doctor") == "patient":
+            system_role = (
+                "You are an empathetic, friendly, and highly professional clinical nurse speaking directly to a patient. "
+                "Use simple language and a warm, reassuring tone. "
+                "The patient might ask for a health report comparing their current vitals to their 5-day and 15-day history. "
+                "If they ask for a progress report, you MUST provide a detailed text report that uses clean ASCII bar charts to visualize their Heart Rate and HRV history. "
+                "Draw the charts clearly and explain what the trends mean in an encouraging way."
+            )
+        else:
+            system_role = (
+                "You are a knowledgeable clinical assistant specializing in cardiac rehabilitation and physiology. "
+                "Provide a clear, accurate, and medically-informed response."
+            )
 
-Patient Physiological Data (Polar H10):
+        prompt = f"""
+{system_role}
+
+Patient Physiological Data & History (Polar H10):
 {json.dumps(req.patient_data, indent=2)}
 
 Knowledge Base Context (from uploaded medical documents):
@@ -115,9 +129,8 @@ Knowledge Base Context (from uploaded medical documents):
 User Query:
 {req.query}
 
-Instructions: Provide a clear, accurate, and medically-informed response to the User Query. 
-Use the Knowledge Base Context and Patient Data when they are relevant and helpful. 
-If the context is not relevant, rely on your broad medical expertise to give a sound, concise answer.
+Instructions: Use the Knowledge Base Context and Patient Data when they are relevant and helpful. 
+If the context is not relevant, rely on your broad medical expertise. 
 Always be helpful and never refuse a question due to lack of uploaded context.
 """
         

@@ -8,7 +8,7 @@
     <meta name="description"
         content="AI-powered cardiac rehabilitation assistant using Polar H10 ECG data and RAG-based clinical knowledge.">
     <link rel="stylesheet" href="fonts.css">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=4">
     <script src="lucide.min.js"></script>
 </head>
 
@@ -46,7 +46,7 @@
             <div class="tab-content active" id="panel-upload">
                 <label class="section-label">Knowledge Base</label>
                 <div class="upload-zone" id="drop-zone">
-                    <input type="file" id="file-upload" accept=".pdf" hidden>
+                    <input type="file" id="file-upload" accept=".pdf" multiple hidden>
                     <i data-lucide="file-plus" class="upload-icon"></i>
                     <p>Drop PDF here</p>
                     <span class="upload-subtext">or click to browse</span>
@@ -115,6 +115,13 @@
                         <option value="alibayram/medgemma:27b">MedGemma 27B</option>
                         <option value="llama3.2:latest">Llama 3.2</option>
                     </select>
+                    <div class="role-tabs">
+                        <button id="btn-doc" class="role-tab active">Clinician</button>
+                        <button id="btn-pat" class="role-tab">Patient</button>
+                    </div>
+                    <button class="generate-pdf-btn" id="btn-report" title="Generate PDF Report">
+                        <i data-lucide="file-text"></i> Generate PDF
+                    </button>
                     <button class="icon-btn" id="clear-chat-btn" title="Clear conversation">
                         <i data-lucide="trash-2"></i>
                     </button>
@@ -156,7 +163,7 @@
         </main>
     </div>
 
-    <script src="app.js"></script>
+    <script src="app.js?v=4"></script>
     <script>lucide.createIcons();</script>
 </body>
 
