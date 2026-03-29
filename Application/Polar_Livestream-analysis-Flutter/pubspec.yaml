@@ -1,0 +1,34 @@
+name: polar_livestream_analysis_flutter
+description: Flutter Android port of the Polar Livestream analysis dashboard.
+publish_to: none
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.9.0
+  flutter: ">=3.27.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  mqtt_client: ^10.11.10
+  path_provider: ^2.1.5
+  shared_preferences: ^2.5.5
+  permission_handler: ^12.0.1
+  polar: ^7.10.0
+  carp_polar_package: ^1.6.2
+  flutter_hrv:
+    git:
+      url: https://github.com/Open-HRV/flutter_hrv.git
+      ref: main
+  scientisst:
+    git:
+      url: https://github.com/scientisst/flutter-scientisst.git
+      ref: main
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
