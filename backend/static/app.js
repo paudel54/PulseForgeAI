@@ -448,13 +448,31 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (data.status === 'Offline' || data.status === 'Waiting...') {
                 statusEl.className = 'vital-value';
-                document.querySelector('.pulse-dot').style.animation = 'none';
-                document.querySelector('.pulse-dot').style.backgroundColor = '#ccc';
+                document.querySelectorAll('.pulse-dot').forEach(el => {
+                    el.style.animation = 'none';
+                    el.style.backgroundColor = '#ccc';
+                });
             } else {
                 statusEl.className = 'vital-value status-ok';
-                document.querySelector('.pulse-dot').style.animation = 'pulse 1.5s infinite';
-                document.querySelector('.pulse-dot').style.backgroundColor = 'var(--accentPrimary)';
+                document.querySelectorAll('.pulse-dot').forEach(el => {
+                    el.style.animation = 'pulse 1.5s infinite';
+                    el.style.backgroundColor = 'var(--accentPrimary)';
+                });
             }
+
+            // Hero Telemetry Card
+            document.getElementById('hero-hr').innerHTML = `${data.hr} <small>bpm</small>`;
+            document.getElementById('hero-hrv').innerHTML = `${data.hrv} <small>ms</small>`;
+
+            const heroStatusEl = document.getElementById('hero-status');
+            heroStatusEl.textContent = data.status;
+
+            if (data.status === 'Offline' || data.status === 'Waiting...') {
+                heroStatusEl.className = 'hero-value';
+            } else {
+                heroStatusEl.className = 'hero-value status-ok';
+            }
+
         } catch (e) {
             console.error("Live metrics polling failed", e);
         }

@@ -692,6 +692,69 @@ body {
     padding: 4px 0;
 }
 
+/* Live Hero Card */
+.live-hero-card {
+    background: rgba(20, 25, 35, 0.4);
+    border-bottom: 1px solid var(--border);
+    padding: 20px 24px;
+}
+
+.hero-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 15px;
+}
+
+.hero-header h2 {
+    font-size: 1.1rem;
+    font-weight: 500;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+}
+
+.hero-header i {
+    color: var(--primary);
+}
+
+.hero-metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 15px;
+}
+
+.hero-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 15px 20px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.hero-label {
+    font-size: 0.8rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.hero-value {
+    font-size: 1.8rem;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.hero-value small {
+    font-size: 1rem;
+    color: var(--muted);
+    font-weight: 400;
+}
+
 /* Input Area */
 .chat-input-area {
     padding: 16px 20px 20px;
