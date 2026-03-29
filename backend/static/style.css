@@ -595,7 +595,7 @@ body {
 /* Messages */
 .message {
     display: flex;
-    gap: 12px;
+    gap: 10px;
     max-width: 88%;
     align-items: flex-start;
 }
