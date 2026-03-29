@@ -19,5 +19,82 @@
   "activity_level": 1,
   "chest_pain": "With Exertion",
   "dyspnea": "On Exertion",
-  "phq2": 2
+  "phq2": 2,
+  "historical_baseline": {
+    "timeframe": "7_days",
+    "days": [
+      {
+        "date": "2026-03-22",
+        "steps": 0,
+        "calories": 1755.9,
+        "heart_points": 26.0,
+        "avg_bpm": 103.1,
+        "body_temp": 30.3,
+        "sleep_hours": 0.0
+      },
+      {
+        "date": "2026-03-23",
+        "steps": 0,
+        "calories": 1634.5,
+        "heart_points": 0.0,
+        "avg_bpm": 93.4,
+        "body_temp": 33.0,
+        "sleep_hours": 0.0
+      },
+      {
+        "date": "2026-03-24",
+        "steps": 693,
+        "calories": 1634.5,
+        "heart_points": 0.0,
+        "avg_bpm": null,
+        "body_temp": null,
+        "sleep_hours": 7.92
+      },
+      {
+        "date": "2026-03-25",
+        "steps": 7900,
+        "calories": 2491.2,
+        "heart_points": 26.0,
+        "avg_bpm": 98.2,
+        "body_temp": 33.4,
+        "sleep_hours": 15.58
+      },
+      {
+        "date": "2026-03-26",
+        "steps": 19386,
+        "calories": 2938.3,
+        "heart_points": 87.0,
+        "avg_bpm": 77.2,
+        "body_temp": 34.5,
+        "sleep_hours": 0.0
+      },
+      {
+        "date": "2026-03-27",
+        "steps": 7834,
+        "calories": 2263.3,
+        "heart_points": 33.0,
+        "avg_bpm": 95.4,
+        "body_temp": 33.8,
+        "sleep_hours": 4.08
+      },
+      {
+        "date": "2026-03-28",
+        "steps": 10157,
+        "calories": 2487.6,
+        "heart_points": 9.0,
+        "avg_bpm": 98.8,
+        "body_temp": 30.9,
+        "sleep_hours": 6.75
+      },
+      {
+        "date": "2026-03-29",
+        "steps": 0,
+        "calories": 0.0,
+        "heart_points": 0.0,
+        "avg_bpm": null,
+        "body_temp": null,
+        "sleep_hours": 0.0
+      }
+    ]
+  }
 }
