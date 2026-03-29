@@ -149,31 +149,58 @@ async def process_query(req: QueryRequest):
             except Exception as e:
                 cohort_context = f"\n[!] Cohort Engine Error: {str(e)}\n"
                 
-        # 1.6 Live MQTT Stream Interpolation (Target: Subject S000)
+        # 1.6 Temporal Telemetry Context: Latest health state + historical logs
         mqtt_context = ""
+        current_hr = req.patient_data.get("metrics", {}).get("heart_rate_bpm", 70)
+        
         if live_patients_collection:
             try:
-                live_res = live_patients_collection.get(ids=["S000_info", "S000_raw"])
-                if live_res and live_res.get('documents'):
-                    mqtt_context = "\n[LIVE MQTT TELEMETRY FEED (EMQX)]:\n"
-                    for doc in live_res['documents']:
-                        if doc:
-                            mqtt_context += f"{doc}\n"
+                import time
+                import re as _re
+                current_unix = int(time.time())
+                window_start = current_unix - 3600  # last 60 minutes
+                
+                # Fetch all records from last 60 minutes
+                all_raw = live_patients_collection.get(
+                    where={"$and": [{"type": {"$eq": "raw"}}, {"timestamp": {"$gte": window_start}}]},
+                    include=["documents", "metadatas"]
+                )
+                
+                if all_raw and all_raw.get('documents') and len(all_raw['documents']) > 0:
+                    # Sort ascending by timestamp
+                    paired = sorted(
+                        zip(all_raw['metadatas'], all_raw['documents']),
+                        key=lambda x: x[0].get('timestamp', 0)
+                    )
+                    
+                    # Latest record = the true current state
+                    latest_doc = paired[-1][1]
+                    
+                    # Extract current HR for safety engine
+                    hr_match = _re.search(r'heart rate of ([\d.]+) bpm', latest_doc)
+                    if hr_match:
+                        current_hr = float(hr_match.group(1))
+                    
+                    # Downsample: pick 10 evenly spaced records from history (excluding latest)
+                    history = [d for _, d in paired[:-1]]
+                    n = len(history)
+                    if n <= 10:
+                        sampled = history
+                    else:
+                        # Pick 10 evenly spaced indices
+                        indices = [int(i * (n - 1) / 9) for i in range(10)]
+                        sampled = [history[i] for i in indices]
+                    
+                    mqtt_context = f"\n[CURRENT PATIENT STATE at Unix {current_unix}]:\n{latest_doc}\n"
+                    if sampled:
+                        mqtt_context += f"\n[60-MINUTE HISTORY ({len(sampled)} sampled snapshots, oldest→newest)]:\n"
+                        for doc in sampled:
+                            mqtt_context += f"- {doc}\n"
+                else:
+                    mqtt_context = "\n[No telemetry data available from the last 60 minutes]\n"
+                        
             except Exception as e:
-                mqtt_context = f"\n[!] MQTT Connection Exception: {str(e)}\n"
-        
-        # 1.7 Execute Deterministic Safety Bounds (EnergySafeWindow)
-        # Check if the live MQTT stream has a Heart Rate
-        current_hr = req.patient_data.get("metrics", {}).get("heart_rate_bpm", 70)
-        if live_patients_collection and "S000_raw" in mqtt_context:
-            try:
-                # Naive parse of the raw JSON block inside the context string
-                import re
-                hr_match = re.search(r'"avg_bpm_ecg":\s*([\d.]+)', mqtt_context)
-                if hr_match:
-                    current_hr = float(hr_match.group(1))
-            except:
-                pass
+                mqtt_context = f"\n[!] Telemetry Exception: {str(e)}\n"
 
         intake_data = {"age": 60, "prescribed_intensity_range": [0.4, 0.7]}
         safety_engine = EnergySafeWindow(intake_data)

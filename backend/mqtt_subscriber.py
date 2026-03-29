@@ -41,20 +41,34 @@ def on_message(client, userdata, msg):
             subject_id = parts[1]
             stream_type = parts[2]
             
-            # Use ChromaDB to store the latest state for the RAG pipeline
-            doc_id = f"{subject_id}_{stream_type}"
-            
-            live_collection.upsert(
-                documents=[payload_str],
-                metadatas=[{"subject_id": subject_id, "type": stream_type}],
-                ids=[doc_id]
-            )
+            # Use ChromaDB to store a historical semantic memory of the telemetry
+            import time
+            from datetime import datetime
+            current_time = int(time.time())
+            human_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            doc_id = f"{subject_id}_{stream_type}_{current_time}"
             
             if stream_type == "raw":
                 hr = data.get("heart_rate", {}).get("avg_bpm_ecg", "N/A")
-                act = data.get("accelerometer", {}).get("activity", {}).get("label", "N/A")
-                logger.info(f"[{subject_id} RAW] Upserted tick -> HR: {hr} bpm | Act: {act}")
+                hrv = data.get("hrv", {}).get("rmssd_ms", "N/A")
+                if isinstance(hrv, float): hrv = round(hrv, 1)
+                act = data.get("accelerometer", {}).get("activity", {}).get("label", "Unknown").replace("_", " ")
+                
+                # Semantic mapping for LLM RAG retrieval
+                semantic_log = f"[{human_time} / Unix {current_time}] Patient {subject_id} recorded a heart rate of {hr} bpm and HRV of {hrv} ms. Current activity: {act}."
+                
+                live_collection.upsert(
+                    documents=[semantic_log],
+                    metadatas=[{"subject_id": subject_id, "type": stream_type, "timestamp": current_time, "json": payload_str}],
+                    ids=[doc_id]
+                )
+                logger.info(f"[{subject_id} RAW] Appended history tick -> HR: {hr} bpm | Act: {act}")
             else:
+                live_collection.upsert(
+                    documents=[payload_str],
+                    metadatas=[{"subject_id": subject_id, "type": stream_type, "timestamp": current_time}],
+                    ids=[doc_id]
+                )
                 logger.info(f"[{subject_id} INFO] Intake state synchronized to ChromaDB.")
                 
     except Exception as e:

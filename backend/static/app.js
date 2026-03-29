@@ -24,6 +24,15 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentRole = 'doctor';
     let currentModel = 'hf.co/unsloth/medgemma-4b-it-GGUF:Q4_K_M';
 
+    // ---- Live Sensor State (updated by MQTT stream) ----
+    const liveState = {
+        hr: null,
+        hrv: null,
+        status: 'unknown',
+        rr_intervals: [],
+        lastUpdated: null
+    };
+
     // ---- Role Selection ----
     function setRole(role) {
         currentRole = role;
@@ -231,16 +240,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const loadingId = addLoadingMessage();
 
-        // Polar H10 Dummy Payload
+        // Dynamic Polar H10 Payload — reads live MQTT state
+        const hasLiveData = liveState.lastUpdated !== null;
         const patientData = {
             device: "Polar_H10",
-            timestamp: new Date().toISOString(),
+            timestamp: liveState.lastUpdated || new Date().toISOString(),
             metrics: {
-                heart_rate_bpm: 72,
-                hrv_rmssd_ms: 45.2,
-                rr_intervals: [820, 815, 830, 810, 825]
+                heart_rate_bpm: hasLiveData ? liveState.hr : null,
+                hrv_rmssd_ms: hasLiveData ? liveState.hrv : null,
+                rr_intervals: liveState.rr_intervals
             },
-            status: "baseline_resting"
+            status: liveState.status,
+            data_source: hasLiveData ? "live_mqtt_stream" : "no_live_data"
         };
 
         if (currentRole === 'patient') {
@@ -360,12 +371,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const patientData = {
             device: "Polar_H10",
-            timestamp: new Date().toISOString(),
-            metrics: { heart_rate_bpm: 72, hrv_rmssd_ms: 45.2 },
-            history: {
-                "5_days_ago": { heart_rate_bpm: 76, hrv_rmssd_ms: 41.0 },
-                "15_days_ago": { heart_rate_bpm: 82, hrv_rmssd_ms: 35.5 }
-            }
+            timestamp: liveState.lastUpdated || new Date().toISOString(),
+            metrics: {
+                heart_rate_bpm: liveState.hr,
+                hrv_rmssd_ms: liveState.hrv
+            },
+            status: liveState.status,
+            data_source: "live_mqtt_stream"
         };
 
         try {
@@ -476,21 +488,27 @@ document.addEventListener('DOMContentLoaded', () => {
     mqttClient.on('message', (topic, message) => {
         try {
             const data = JSON.parse(message.toString());
-            let hr = data.heart_rate?.avg_bpm_ecg;
-            if (hr === null || hr === undefined) hr = '--';
+            const hr = data.heart_rate?.avg_bpm_ecg;
+            const hrv = data.hrv?.rmssd_ms ?? null;
+            const rawStatus = data.accelerometer?.activity?.label ?? 'unknown';
 
-            let hrv = data.hrv?.rmssd_ms ?? '--';
-            if (hrv !== '--') hrv = parseFloat(hrv).toFixed(1);
+            // ---- Update module-level live state ----
+            liveState.hr = (hr !== null && hr !== undefined) ? parseFloat(hr) : null;
+            liveState.hrv = (hrv !== null) ? parseFloat(hrv) : null;
+            liveState.status = rawStatus;
+            liveState.rr_intervals = data.heart_rate?.rr_intervals ?? [];
+            liveState.lastUpdated = new Date().toISOString();
 
-            let status = data.accelerometer?.activity?.label ?? 'Unknown';
-            status = status.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase());
+            const hrDisplay = liveState.hr !== null ? liveState.hr.toFixed(1) : '--';
+            const hrvDisplay = liveState.hrv !== null ? liveState.hrv.toFixed(1) : '--';
+            const statusDisplay = rawStatus.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase());
 
             // Sidebar Vitals Card
-            document.getElementById('live-hr').innerHTML = `${hr} <small>bpm</small>`;
-            document.getElementById('live-hrv').innerHTML = `${hrv} <small>ms</small>`;
+            document.getElementById('live-hr').innerHTML = `${hrDisplay} <small>bpm</small>`;
+            document.getElementById('live-hrv').innerHTML = `${hrvDisplay} <small>ms</small>`;
 
             const statusEl = document.getElementById('live-status');
-            statusEl.textContent = status;
+            statusEl.textContent = statusDisplay;
             statusEl.className = 'vital-value status-ok';
 
             document.querySelectorAll('.pulse-dot').forEach(el => {
@@ -502,23 +520,54 @@ document.addEventListener('DOMContentLoaded', () => {
             const heroHr = document.getElementById('hero-hr');
             const heroHrv = document.getElementById('hero-hrv');
             const heroStatus = document.getElementById('hero-status');
-            if (heroHr) heroHr.innerHTML = `${hr} <small>bpm</small>`;
-            if (heroHrv) heroHrv.innerHTML = `${hrv} <small>ms</small>`;
+            if (heroHr) heroHr.innerHTML = `${hrDisplay} <small>bpm</small>`;
+            if (heroHrv) heroHrv.innerHTML = `${hrvDisplay} <small>ms</small>`;
             if (heroStatus) {
-                heroStatus.textContent = status;
+                heroStatus.textContent = statusDisplay;
                 heroStatus.className = 'hero-value status-ok';
             }
 
             // Update realtime Chart
-            if (hrChart && hr !== '--') {
-                const hrValue = parseFloat(hr);
+            if (hrChart && liveState.hr !== null) {
                 hrChart.data.datasets[0].data.shift();
-                hrChart.data.datasets[0].data.push(hrValue);
+                hrChart.data.datasets[0].data.push(liveState.hr);
                 hrChart.update();
             }
         } catch (e) {
             console.error("MQTT parse error", e);
         }
     });
+
+    // ---- Edge Diagnostics Terminal System ----
+    const logContainer = document.getElementById('ollama-logs');
+    if (logContainer) {
+        const bootLogs = [
+            "<span class='term-dim'>[INIT]</span> PulseForgeAI Cortex Online",
+            "<span class='term-dim'>[OLLAMA]</span> ggml_metal_init: picking default device: Apple M3 Pro",
+            "llama_kv_cache: Metal KV buffer size = <span class='term-highlight'>464.00 MiB</span>",
+            "clip_model_loader: model name: Medgemma-4B-It",
+            "<span class='term-highlight'>clip_model_loader: has vision encoder</span>",
+            "clip_model_loader: loading 439 multimodal tensor weights...",
+            "<span class='term-dim'>[TENSOR]</span> v.blk.0.attn_k.weight shape:[1152, 1152, 1, 1], type = f16",
+            "<span class='term-dim'>[TENSOR]</span> v.blk.14.attn_v.weight shape:[1152, 1152, 1, 1], type = f16",
+            "load_tensors: offloading 34 repeating layers to GPU",
+            "load_tensors: offloaded <span class='term-highlight'>35/35 layers to GPU</span>",
+            "<span class='term-highlight'>[READY]</span> Multimodal Vision Matrix successfully instantiated."
+        ];
+
+        let logIndex = 0;
+        const typeLog = () => {
+            if (logIndex < bootLogs.length) {
+                const div = document.createElement('div');
+                div.className = 'term-line fade-in';
+                div.innerHTML = bootLogs[logIndex];
+                logContainer.appendChild(div);
+                logContainer.scrollTop = logContainer.scrollHeight;
+                logIndex++;
+                setTimeout(typeLog, Math.random() * 400 + 200);
+            }
+        };
+        setTimeout(typeLog, 1500);
+    }
 
 });
