@@ -917,7 +917,10 @@ class MainDashboard(QMainWindow):
         act_title = act_label.replace("_", " ").title() if act_label != "unknown" else "--"
         if act_label != "unknown":
             max_conf = max(list(har_act.get("confidence", {}).values()) or [0])
-            self._act_lbl.setText(f"{act_title} ({max_conf:.0%})")
+            if max_conf == 1.0:
+                self._act_lbl.setText(f"{act_title} (Heuristic)")
+            else:
+                self._act_lbl.setText(f"{act_title} (ML: {max_conf:.0%})")
         else:
             self._act_lbl.setText("--")
 

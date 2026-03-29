@@ -95,24 +95,51 @@ class HARInferenceEngine:
         """
         Expects a numpy array of shape (1000, 3) representing exactly 10 seconds 
         of native Polar H10 accelerometer data at 100 Hz.
+        Uses a Hybrid Heuristic + ML approach restricting to 4 classes:
+        Sitting, Standing, Walking, Stair Climbing.
         """
         if acc_100hz_window.shape[0] < 500: # Need at least 5s to make a partial guess
             return {"label": "unknown", "confidence": {}}
             
-        # 1. Downsample to 30 Hz (requires exactly 300 samples for 10s)
-        # We calculate exact dimension matching length of provided signal chunk
+        # 1. Component Analysis (Heuristics)
+        # -----------------------------------
+        x   = acc_100hz_window[:, 0]
+        y   = acc_100hz_window[:, 1]
+        z   = acc_100hz_window[:, 2]
+        mag = np.sqrt(x**2 + y**2 + z**2)
+        var_mag = np.var(mag, ddof=1)
+        
+        # If variance is low, the subject is Sedentary (Sitting / Standing)
+        if var_mag < 2500:
+            # Posture heuristic based on gravity vector (chest strap orientation)
+            # Polar H10: Y is vertical (down), Z is sagittal (front/back)
+            # Upright standing: Z is near 0. Reclined sitting/slouching: Z magnitude increases.
+            y_mean = np.mean(y)
+            z_mean = np.mean(z)
+            
+            # Angle of chest tilt from purely vertical (Y-axis) in degrees
+            pitch_angle = np.arctan2(abs(z_mean), abs(y_mean)) * (180.0 / np.pi)
+            
+            # If leaning back/forward > 15 degrees, assume sitting.
+            if pitch_angle > 15.0:
+                return {"label": "sitting", "confidence": {"sitting": 1.0}}
+            else:
+                return {"label": "standing", "confidence": {"standing": 1.0}}
+
+        # 2. Dynamic Activity (Walking / Stair Climbing) via PyTorch ML
+        # -----------------------------------------------------------------
+        # Downsample to 30 Hz (requires exactly 300 samples for 10s)
         target_len = int(acc_100hz_window.shape[0] * (30.0 / 100.0))
         acc_30hz = resample(acc_100hz_window, target_len, axis=0) # shape: (T_30, 3)
         
-        # 2. Format tensor (Batch=1, Channels=3, Length)
+        # Format tensor (Batch=1, Channels=3, Length)
         tensor = torch.FloatTensor(acc_30hz).unsqueeze(0).permute(0, 2, 1).to(self.device)
         
-        # 3. Extract Features
+        # Extract Features
         f_resnet = self.pamap_model.get_features(tensor) # (1, 128)
         f_harnet = self.harnet.feature_extractor(tensor).mean(dim=-1) # (1, 1024)
         
-        # 4. Instance Normalization (Fallback for missing StandardScaler fitting)
-        # Fuses 1152 dim vector and zeroes mean to help linear layer stability
+        # Instance Normalization
         f_resnet_np = f_resnet.cpu().numpy()
         f_harnet_np = f_harnet.cpu().numpy()
         
@@ -122,15 +149,25 @@ class HARInferenceEngine:
         fused_features = np.concatenate([f_r_norm, f_h_norm], axis=1) # (1, 1152)
         fused_tensor = torch.FloatTensor(fused_features).to(self.device)
         
-        # 5. Classify
-        logits = self.fusion_clf(fused_tensor) # (1, 8)
-        probs = torch.softmax(logits, dim=1).squeeze(0).cpu().numpy()
+        # Classify
+        logits = self.fusion_clf(fused_tensor).squeeze(0) # (8)
+        
+        # Mask Out all classes except Walking (1) and Stair Climbing (4)
+        target_indices = [1, 4]
+        mask = torch.full_like(logits, float('-inf'))
+        for idx in target_indices:
+            mask[idx] = logits[idx]
+        
+        # Softmax only over the restricted classes
+        probs = torch.softmax(mask, dim=0).cpu().numpy()
         
         pred_idx = int(np.argmax(probs))
         pred_label = SHARED_ACTIVITIES.get(pred_idx, "unknown")
         
-        # Convert to dictionary mapping
-        confidences = {SHARED_ACTIVITIES[i]: float(probs[i]) for i in range(len(probs))}
+        confidences = {
+            "walking": float(probs[1]),
+            "stair_climbing": float(probs[4])
+        }
         
         return {
             "label": pred_label,
