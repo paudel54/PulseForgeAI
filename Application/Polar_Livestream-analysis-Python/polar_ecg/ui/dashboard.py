@@ -513,7 +513,7 @@ class MainDashboard(QMainWindow):
         sqi_grid.setHorizontalSpacing(16)
         sqi_grid.setVerticalSpacing(2)
 
-        sqi_hdr = QLabel("ECG SQI")
+        sqi_hdr = QLabel("ECG SQI (NeuroKit)")
         sqi_hdr.setFont(QFont("Segoe UI", 9, QFont.Bold))
         sqi_hdr.setStyleSheet(f"color: {DARK_THEME['text_dim']};")
         sqi_grid.addWidget(sqi_hdr, 0, 0)
@@ -526,23 +526,45 @@ class MainDashboard(QMainWindow):
         sqi_cat_hdr = QLabel("Quality")
         sqi_cat_hdr.setFont(QFont("Segoe UI", 9, QFont.Bold))
         sqi_cat_hdr.setStyleSheet(f"color: {DARK_THEME['text_dim']};")
-        sqi_grid.addWidget(sqi_cat_hdr, 0, 2)
+        sqi_grid.addWidget(sqi_cat_hdr, 0, 1)
 
         self._sqi_cat_lbl = QLabel("--")
         self._sqi_cat_lbl.setFont(QFont("Segoe UI", 11, QFont.Bold))
-        sqi_grid.addWidget(self._sqi_cat_lbl, 1, 2)
+        sqi_grid.addWidget(self._sqi_cat_lbl, 1, 1)
+        
+        # QRS Energy
+        qrs_hdr = QLabel("QRS Energy")
+        qrs_hdr.setFont(QFont("Segoe UI", 9, QFont.Bold))
+        qrs_hdr.setStyleSheet(f"color: {DARK_THEME['text_dim']};")
+        sqi_grid.addWidget(qrs_hdr, 2, 0)
+        
+        self._qrs_val_lbl = QLabel("--")
+        self._qrs_val_lbl.setFont(QFont("Consolas", 11))
+        self._qrs_val_lbl.setStyleSheet(f"color: {DARK_THEME['secondary']};")
+        sqi_grid.addWidget(self._qrs_val_lbl, 3, 0)
+        
+        # vital_sqi Kurtosis
+        vital_hdr = QLabel("Vital Kurtosis")
+        vital_hdr.setFont(QFont("Segoe UI", 9, QFont.Bold))
+        vital_hdr.setStyleSheet(f"color: {DARK_THEME['text_dim']};")
+        sqi_grid.addWidget(vital_hdr, 2, 1)
+        
+        self._vital_val_lbl = QLabel("--")
+        self._vital_val_lbl.setFont(QFont("Consolas", 11))
+        self._vital_val_lbl.setStyleSheet(f"color: {DARK_THEME['secondary']};")
+        sqi_grid.addWidget(self._vital_val_lbl, 3, 1)
 
         inst_hr_hdr = QLabel("ECG HR (5 s)")
         inst_hr_hdr.setFont(QFont("Segoe UI", 9, QFont.Bold))
         inst_hr_hdr.setStyleSheet(f"color: {DARK_THEME['text_dim']};")
-        sqi_grid.addWidget(inst_hr_hdr, 2, 0)
+        sqi_grid.addWidget(inst_hr_hdr, 4, 0)
 
         self._inst_hr_lbl = QLabel("--")
         self._inst_hr_lbl.setFont(QFont("Consolas", 11))
         self._inst_hr_lbl.setStyleSheet(f"color: {DARK_THEME['secondary']};")
-        sqi_grid.addWidget(self._inst_hr_lbl, 3, 0)
+        sqi_grid.addWidget(self._inst_hr_lbl, 5, 0)
 
-        sqi_grid.setRowStretch(4, 1)
+        sqi_grid.setRowStretch(6, 1)
         tabs.addTab(sqi_tab, "Quality")
 
         outer.addWidget(tabs)
@@ -835,6 +857,8 @@ class MainDashboard(QMainWindow):
 
         # Update Quality tab
         sqi = result.get("sqi")
+        sqi_metrics = result.get("sqi_metrics", {})
+        
         if sqi is not None:
             self._sqi_val_lbl.setText(f"{sqi:.3f}")
             cat, color = _sqi_category(sqi)
@@ -844,6 +868,19 @@ class MainDashboard(QMainWindow):
             self._sqi_val_lbl.setText("--")
             self._sqi_cat_lbl.setText("--")
             self._sqi_cat_lbl.setStyleSheet(f"color: {DARK_THEME['text_dim']}; font-weight: bold;")
+            
+        qrs_sqi = sqi_metrics.get("qrs_energy")
+        vital_sqi = sqi_metrics.get("vital_kurtosis")
+        
+        if qrs_sqi is not None:
+            self._qrs_val_lbl.setText(f"{qrs_sqi:.3f}")
+        else:
+            self._qrs_val_lbl.setText("--")
+            
+        if vital_sqi is not None:
+            self._vital_val_lbl.setText(f"{vital_sqi:.2f}")
+        else:
+            self._vital_val_lbl.setText("--")
 
         inst_hr = result.get("instant_hr")
         self._inst_hr_lbl.setText(f"{inst_hr:.1f} bpm" if inst_hr is not None else "--")
@@ -913,12 +950,16 @@ class MainDashboard(QMainWindow):
 # ------------------------------------------------------------------ #
 
 def _sqi_category(sqi: float):
-    """Return a human-readable quality label and theme colour."""
+    """Return a human-readable quality label and theme colour.
+
+    Thresholds:
+      ≥ 0.60  → Good      (green)
+      0.30–0.60 → Fair    (orange)
+      < 0.30  → Poor      (red/accent)
+    """
     T = DARK_THEME
-    if sqi >= 0.90:
-        return "Excellent", T["secondary"]
-    if sqi >= 0.75:
-        return "Good",      T["primary"]
-    if sqi >= 0.50:
-        return "Fair",      "#fab387"   # orange
+    if sqi >= 0.60:
+        return "Good", T["primary"]
+    if sqi >= 0.30:
+        return "Fair", "#fab387"   # orange
     return "Poor", T["accent"]

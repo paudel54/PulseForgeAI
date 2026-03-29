@@ -1,0 +1,23 @@
+{
+  "subject_id": "S000",
+  "age": 30,
+  "sex": "Male",
+  "height_cm": 175,
+  "weight_kg": 75.0,
+  "hr_target_low": 60,
+  "hr_target_high": 180,
+  "event": "Post-MI",
+  "event_date": "2025-03-20",
+  "lvef": 45,
+  "comorb_dia": true,
+  "comorb_copd": false,
+  "comorb_hyp": true,
+  "comorb_pad": false,
+  "comorb_ren": false,
+  "beta_blocker": "Yes",
+  "tobacco": "Current",
+  "activity_level": 1,
+  "chest_pain": "With Exertion",
+  "dyspnea": "On Exertion",
+  "phq2": 2
+}
