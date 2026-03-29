@@ -92,6 +92,47 @@ def load_acc_folder(folder: str) -> Dict[Tuple[str, str], np.ndarray]:
     return acc_map
 
 
+def load_subject_info(csv_path: str) -> pd.DataFrame:
+    """
+    Load and clean subject-info.csv.
+
+    The file has a two-row header where the first row contains category
+    groups (General information, Surgery information, etc.) and the second
+    row contains the actual column names. We use only the second row as
+    the header and rename to clean snake_case names for joining downstream.
+
+    patient_id is zero-padded to 3 digits (e.g. '001') to match the format
+    used in record filenames.
+    """
+    df = pd.read_csv(csv_path, header=[0, 1], encoding='utf-8-sig')
+
+    df.columns = [
+        'patient_id', 'age', 'gender', 'height_cm', 'weight_kg',
+        'efs_score', 'days_after_surgery', 'surgery_type',
+        'heart_failure_nyha', 'atrial_fibrillation', 'copd',
+        'depression', 'musculoskeletal_disease', 'oncological_disease',
+        'ace_inhibitors', 'beta_blockers', 'calcium_channel_blockers',
+        '6mwt_distance_m', '6mwt_time_s', 'velo_duration',
+        'velo_max_load_watt', 'velo_max_hr_bpm',
+        'gait_step_length_left_cm', 'gait_step_length_right_cm',
+        'gait_stride_length_cm', 'gait_step_width_cm',
+        'gait_stance_phase_left_pct', 'gait_stance_phase_right_pct',
+        'gait_swing_phase_left_pct', 'gait_swing_phase_right_pct',
+        'gait_double_stance_pct', 'gait_step_time_left_s',
+        'gait_step_time_right_s', 'gait_stride_time_s',
+        'gait_cadence_steps_per_min', 'gait_velocity_km_h',
+        'bal_gait_line_left_mm', 'bal_gait_line_right_mm',
+        'bal_single_limb_left_mm', 'bal_single_limb_right_mm',
+        'bal_ant_post_position_mm', 'bal_lateral_symmetry_mm',
+        'bal_max_gait_line_velocity_cm_s',
+    ]
+
+    # zero-pad to match record filename format e.g. '1' → '001'
+    df['patient_id'] = df['patient_id'].astype(str).str.zfill(3)
+
+    return df
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  SECTION 2 — ECG-FM PIPELINE
 # ══════════════════════════════════════════════════════════════════════════════
@@ -103,7 +144,13 @@ def build_transforms(
 ) -> List[ECGTransform]:
     """
     Preprocessing chain applied before the ECG-FM forward pass.
-    Order is fixed — see ecg_fm_inference.py for full rationale.
+
+    Order is fixed:
+      1. ReorderLeads        — must precede standardization to avoid std=0 NaN
+      2. HandleConstantLeads — zero out flat/disconnected leads
+      3. LinearResample      — bring to 500 Hz
+      4. Standardize         — zero-mean, unit-variance per lead
+      5. SegmentNonoverlapping — chop into 5-second windows
     """
     target_lead_order = target_lead_order or ECG_FM_LEAD_ORDER
     return [
@@ -126,10 +173,7 @@ class ECGFMDataset(Dataset):
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, ECGInput]:
         record_name, signal, fs, lead_names = self.records[idx]
-    
-        # ECGMetadata tells the transform pipeline what it's working with:
-        # the original sample rate (needed for resampling), the lead layout
-        # (needed for reordering), and the valid sample range.
+
         metadata = ECGMetadata(
             sample_rate = fs,
             num_samples = signal.shape[1],
@@ -138,24 +182,22 @@ class ECGFMDataset(Dataset):
             input_start = 0,
             input_end   = signal.shape[1],
         )
-        metadata.file = record_name  # preserved for traceability in downstream analysis
-    
+        metadata.file = record_name
+
         inp = ECGInput(signal, metadata)
-    
+
         try:
             sample = ECGSample(inp, self.schema, self.transforms)
             source = torch.from_numpy(sample.out).float()
-    
             # replace any NaN/inf that survive the transform chain with 0
             # rather than crashing the DataLoader worker process
             source = torch.nan_to_num(source, nan=0.0, posinf=0.0, neginf=0.0)
-    
         except ValueError as e:
-            # NaN values in signal — return a silent zero tensor of the expected
-            # shape so collate_fn can still batch this item without crashing
+            # NaN values in signal — return a zero tensor of the expected shape
+            # so collate_fn can still batch this item without crashing
             print(f"[WARN] Skipping segment in {record_name}: {e}")
             source = torch.zeros((1, len(ECG_FM_LEAD_ORDER), N_SAMPLES))
-    
+
         return source, inp
 
 
@@ -201,8 +243,8 @@ def extract_embeddings_chunked(
 
     The correct output key is 'features' — shape (B, T, 768) — which contains
     the transformer encoder representations. 'x' is the quantized codebook
-    output used during pretraining and has an unstable last dimension.
-    We mean-pool over the time dimension T → (B, 768).
+    output used during pretraining and has an unstable last dimension across
+    chunks. We mean-pool over the time dimension T → (B, 768).
     """
     all_embeddings = []
 
@@ -443,7 +485,7 @@ def process_record(
                       segment_start_s, segment_end_s, hrv_window_index
       Signal info   : sample_rate, lead_names, n_leads_active
       Annotation    : exercise_label (from .atr)
-      ECG-FM        : emb_0 … emb_N
+      ECG-FM        : emb_0 … emb_767  (768-dim features from 'features' key)
       5s ECG        : ecg_sqi, ecg_nk_sqi, ecg_qrs_energy, ecg_vital_kurtosis,
                       ecg_instant_hr, ecg_n_r_peaks
       5s ACC        : acc_mean_mag_mg, acc_var_mag_mg2, acc_spectral_entropy,
@@ -451,7 +493,10 @@ def process_record(
       30s HRV       : hrv_rmssd, hrv_sdnn, hrv_mean_hr, hrv_lf_hf,
                       hrv_p_width, hrv_qrs_width, hrv_st_width,
                       hrv_qt_width, hrv_qtc_width, hrv_n_peaks_30s,
-                      hrv_status
+                      hrv_hrv_status
+
+    Patient-level labels from subject-info.csv are joined in __main__ after
+    all records are processed.
 
     Returns None if the record produces no segments after preprocessing.
     """
@@ -471,19 +516,20 @@ def process_record(
         num_workers = num_workers,
     )
     segments_tensor, sample_ids = next(iter(loader))
-    n_segments = len(segments_tensor)
 
     embeddings = extract_embeddings_chunked(model, segments_tensor, device, chunk_size)
 
     if len(embeddings) == 0:
         return None
 
+    n_segments = len(embeddings)
+
     # ── CPU: signal metrics ────────────────────────────────────────────────
     ecg_1d           = signal[0]
     n_native_samples = ecg_1d.shape[0]
     acc_signal       = acc_map.get((patient_id, session))
 
-    # Load exercise annotations
+    # load exercise annotations from .atr file
     ann_events = []
     try:
         ann        = wfdb.rdann(record_name, 'atr')
@@ -492,6 +538,7 @@ def process_record(
         pass
 
     def _label_for_segment(start_s: float) -> str:
+        """Return the most recent exercise annotation at or before segment start."""
         start_sample = int(start_s * fs)
         label        = "rest"
         for sample, note in ann_events:
@@ -499,7 +546,8 @@ def process_record(
                 label = str(note).strip()
         return label
 
-    # Pre-compute 30s HRV windows and cache by window index
+    # pre-compute 30s HRV windows and cache by window index
+    # each window index covers 6 consecutive 5-second segments
     hrv_cache: Dict[int, dict] = {}
     for w in range(n_native_samples // WINDOW_30S_ECG):
         start_samp   = w * WINDOW_30S_ECG
@@ -513,7 +561,7 @@ def process_record(
         start_s = seg_idx * N_SAMPLES / SAMPLE_RATE
         end_s   = start_s + N_SAMPLES / SAMPLE_RATE
 
-        # 5s ECG metrics
+        # 5s ECG metrics at native 130 Hz
         ecg_start      = int(start_s * ECG_NATIVE_HZ)
         ecg_5s         = ecg_1d[ecg_start : ecg_start + WINDOW_5S_ECG].astype(np.float64)
         ecg_5s_metrics = (
@@ -523,7 +571,7 @@ def process_record(
                   "vital_kurtosis": None, "instant_hr": None, "n_r_peaks": 0}
         )
 
-        # 5s ACC metrics
+        # 5s ACC features
         acc_feats = {"mean_mag_mg": None, "var_mag_mg2": None,
                      "spectral_entropy": None, "median_freq_hz": None}
         if acc_signal is not None:
@@ -532,7 +580,7 @@ def process_record(
             if len(acc_5s) == WINDOW_5S_ACC:
                 acc_feats = compute_acc_har_features(acc_5s, fs=float(ACC_HZ))
 
-        # 30s HRV broadcast
+        # 30s HRV — broadcast to all 5s segments in the same 30s window
         hrv_window_idx = int(start_s // 30)
         hrv_metrics    = hrv_cache.get(hrv_window_idx, {
             "rmssd": None, "sdnn": None, "mean_hr": None, "lf_hf": None,
@@ -573,13 +621,14 @@ def process_record(
 
 if __name__ == "__main__":
     # ── Config ────────────────────────────────────────────────────────────────
-    ECG_FOLDER      = "physionet.org/files/wearable-exercise-frailty/1.0.0/ecg"
-    ACC_FOLDER      = "physionet.org/files/wearable-exercise-frailty/1.0.0/acc"
-    CHECKPOINT_PATH = "ckpts/mimic_iv_ecg_physionet_pretrained.pt"
-    OUTPUT_PARQUET  = "ecg_fm_lookup_table.parquet"
-    CHUNK_SIZE      = 32
-    NUM_WORKERS     = 4
-    DEVICE          = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    ECG_FOLDER       = "physionet.org/files/wearable-exercise-frailty/1.0.0/ecg"
+    ACC_FOLDER       = "physionet.org/files/wearable-exercise-frailty/1.0.0/acc"
+    SUBJECT_INFO_CSV = "physionet.org/files/wearable-exercise-frailty/1.0.0/subject-info.csv"
+    CHECKPOINT_PATH  = "ckpts/mimic_iv_ecg_physionet_pretrained.pt"
+    OUTPUT_PARQUET   = "ecg_fm_lookup_table.parquet"
+    CHUNK_SIZE       = 32   # segments per GPU forward pass — reduce if OOM
+    NUM_WORKERS      = 4
+    DEVICE           = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     print(f"Using device: {DEVICE}")
 
@@ -594,7 +643,7 @@ if __name__ == "__main__":
         )
 
     # ── Load data ─────────────────────────────────────────────────────────────
-    ecg_records = load_wfdb_folder(ECG_FOLDER)[:1]
+    ecg_records = load_wfdb_folder(ECG_FOLDER)
     print(f"ECG records : {len(ecg_records)}")
 
     acc_map = {}
@@ -604,12 +653,19 @@ if __name__ == "__main__":
     else:
         print("[WARN] ACC folder not found — ACC features will be null")
 
+    subject_info = None
+    if os.path.exists(SUBJECT_INFO_CSV):
+        subject_info = load_subject_info(SUBJECT_INFO_CSV)
+        print(f"Subject info: {len(subject_info)} patients, {len(subject_info.columns)} columns")
+    else:
+        print("[WARN] subject-info.csv not found — patient labels will be absent")
+
     # ── Schema & transforms ───────────────────────────────────────────────────
     schema = ECGInputSchema(
         sample_rate         = SAMPLE_RATE,
         expected_lead_order = ECG_FM_LEAD_ORDER,
         min_num_samples     = N_SAMPLES,
-        partial_leads       = True,
+        partial_leads       = True,   # dataset is single-lead (Polar H10)
     )
     transforms = build_transforms()
 
@@ -650,8 +706,15 @@ if __name__ == "__main__":
     else:
         results = pd.concat(all_dfs, ignore_index=True)
 
-        # Parquet preferred over CSV:
-        #   - native float32/float64 (no precision loss)
+        # join patient-level labels from subject-info.csv onto every segment row
+        # left join preserves all segments even if a patient has no subject info
+        if subject_info is not None:
+            results = results.merge(subject_info, on='patient_id', how='left')
+            matched = results['efs_score'].notna().sum()
+            print(f"\nMerged subject info — {matched:,} / {len(results):,} segments have patient labels")
+
+        # Parquet is preferred over CSV:
+        #   - stores float32/float64 natively (no precision loss)
         #   - ~5-10x smaller than CSV for embedding columns
         #   - columnar layout lets downstream tools load only needed columns
         results.to_parquet(OUTPUT_PARQUET, index=False, engine="pyarrow", compression="snappy")
@@ -668,4 +731,4 @@ if __name__ == "__main__":
         for c in meta_cols:
             print(f"  {c}")
         print(f"\nFirst row preview:")
-        print(results[meta_cols[:12]].iloc[0])
+        print(results[meta_cols[:15]].iloc[0])
