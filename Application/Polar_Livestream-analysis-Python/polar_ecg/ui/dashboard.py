@@ -681,6 +681,8 @@ class MainDashboard(QMainWindow):
             self._log("Already connected")
             return
 
+        self._start_mqtt()
+
         self._ble_worker = BLEWorker(use_mock=use_mock)
         if address:
             self._ble_worker.set_device_address(address)
@@ -795,6 +797,19 @@ class MainDashboard(QMainWindow):
     #  Recording controls
     # ------------------------------------------------------------------ #
 
+    def _start_mqtt(self):
+        subject_id = self._intake_payload.get("subject_id", "")
+        if not subject_id:
+            return
+            
+        if not getattr(self, '_mqtt_worker', None):
+            self._mqtt_worker = MQTTWorker(broker="broker.emqx.io", port=1883)
+            self._mqtt_worker.log_msg.connect(self._log)
+            self._mqtt_worker.start()
+            
+        # Publish info topic containing google fit payload immediately upon connection
+        self._mqtt_worker.publish(f"pulseforgeai/{subject_id}/info", self._intake_payload)
+
     def _on_start_recording(self):
         subject_id = self._intake_payload.get("subject_id", "")
         if not subject_id:
@@ -808,15 +823,6 @@ class MainDashboard(QMainWindow):
                     json.dump(self._intake_payload, f, indent=4)
             except Exception as e:
                 self._log(f"Failed to copy intake form to session path: {e}")
-
-            # MQTT Startup
-            if not getattr(self, '_mqtt_worker', None):
-                self._mqtt_worker = MQTTWorker(broker="broker.emqx.io", port=1883)
-                self._mqtt_worker.log_msg.connect(self._log)
-                self._mqtt_worker.start()
-                
-            # Publish intake payload
-            self._mqtt_worker.publish(f"pulseforgeai/{subject_id}/info", self._intake_payload)
 
         except Exception as exc:
             self._log(f"Cannot start recording: {exc}")
@@ -924,9 +930,8 @@ class MainDashboard(QMainWindow):
         else:
             self._act_lbl.setText("--")
 
-        # Export window if recording
-        if self._exporter.is_recording:
-            self._export_window(result)
+        # Always build payload for MQTT continuous stream
+        self._export_window(result)
 
     def _export_window(self, window_result: dict):
         """Build and append a 5-second payload to the JSON export file."""
@@ -941,7 +946,7 @@ class MainDashboard(QMainWindow):
         acc_features = window_result.get("acc_features", {})
 
         payload = self._exporter.build_payload(
-            subject_id     = self._exporter.subject_id or "",
+            subject_id     = self._intake_payload.get("subject_id", "unknown"),
             unix_timestamp = window_result.get("timestamp", time.time()),
             window_s       = 5,
             # ECG quality
@@ -965,7 +970,8 @@ class MainDashboard(QMainWindow):
             acc_features   = acc_features,
             har_activity   = window_result.get("har_activity", {}),
         )
-        self._exporter.append_window(payload)
+        if self._exporter.is_recording:
+            self._exporter.append_window(payload)
         
         if getattr(self, '_mqtt_worker', None):
             subject_id = self._intake_payload.get("subject_id", "unknown")
@@ -973,12 +979,13 @@ class MainDashboard(QMainWindow):
             mqtt_payload["raw_ecg"] = window_result.get("raw_ecg", [])
             self._mqtt_worker.publish(f"pulseforgeai/{subject_id}/raw", mqtt_payload)
 
-        n = self._exporter.window_count
-        sqi = window_result.get("sqi")
-        sqi_str = f"  SQI={sqi:.3f}" if sqi is not None else ""
-        self._rec_status_lbl.setText(
-            f"● Recording  [{n} windows]{sqi_str}  →  {self._exporter.session_file.name}"
-        )
+        if self._exporter.is_recording:
+            n = self._exporter.window_count
+            sqi = window_result.get("sqi")
+            sqi_str = f"  SQI={sqi:.3f}" if sqi is not None else ""
+            self._rec_status_lbl.setText(
+                f"● Recording  [{n} windows]{sqi_str}  →  {self._exporter.session_file.name}"
+            )
 
     # ------------------------------------------------------------------ #
     #  Cleanup
