@@ -5,9 +5,10 @@
 PyQt5>=5.15.0
 pyqtgraph>=0.13.0
 
-# BLE connectivity
+# BLE / Networking connectivity
 bleak>=0.22.0
 bleakheart>=0.2.0
+paho-mqtt>=2.0.0
 
 # Signal processing
 scipy>=1.13.0

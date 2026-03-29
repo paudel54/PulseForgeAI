@@ -12,3 +12,9 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+
+# Session recordings (generated at runtime — do not commit patient data)
+exports/
+
+# Scratch / debug scripts
+test_mqtt.py
