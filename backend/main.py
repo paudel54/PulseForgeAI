@@ -55,34 +55,66 @@ class QueryRequest(BaseModel):
 
 @app.post("/upload")
 async def upload_document(file: UploadFile = File(...)):
-    if not file.filename.endswith('.pdf'):
-        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+    fname = file.filename or ""
+    ext = fname.lower().rsplit(".", 1)[-1]
+
+    if ext not in ("pdf", "json"):
+        raise HTTPException(status_code=400, detail="Only PDF and JSON files are supported.")
     
     try:
-        # Read PDF content
-        reader = PdfReader(file.file)
-        text_content = ""
-        for page in reader.pages:
-            text_content += page.extract_text() + "\n"
-            
-        if not text_content.strip():
-            raise HTTPException(status_code=400, detail="Could not extract text from PDF.")
+        if ext == "pdf":
+            reader = PdfReader(file.file)
+            text_content = ""
+            for page in reader.pages:
+                text_content += page.extract_text() + "\n"
+                
+            if not text_content.strip():
+                raise HTTPException(status_code=400, detail="Could not extract text from PDF.")
 
-        # Very basic chunking (split by paragraphs or fixed length)
-        # In a real scenario, use LangChain's RecursiveCharacterTextSplitter
-        chunks = [text_content[i:i+1000] for i in range(0, len(text_content), 1000)]
-        
-        # Insert into ChromaDB
-        for i, chunk in enumerate(chunks):
-            doc_id = f"{file.filename}_chunk_{i}"
-            collection.add(
-                documents=[chunk],
-                metadatas=[{"filename": file.filename}],
-                ids=[doc_id]
-            )
+            chunks = [text_content[i:i+1000] for i in range(0, len(text_content), 1000)]
             
-        return {"message": f"Successfully processed {file.filename} and added {len(chunks)} chunks to the database."}
+            for i, chunk in enumerate(chunks):
+                doc_id = f"{fname}_chunk_{i}"
+                collection.upsert(
+                    documents=[chunk],
+                    metadatas=[{"filename": fname, "type": "pdf"}],
+                    ids=[doc_id]
+                )
+            return {"message": f"Processed PDF '{fname}': {len(chunks)} chunks ingested into ChromaDB."}
+
+        else:  # JSON
+            raw = await file.read()
+            data = json.loads(raw.decode("utf-8"))
+
+            # Flatten JSON into human-readable RAG document
+            def flatten(obj, prefix=""):
+                lines = []
+                if isinstance(obj, dict):
+                    for k, v in obj.items():
+                        lines.extend(flatten(v, f"{prefix}{k}: " if not prefix else f"{prefix}.{k}: "))
+                elif isinstance(obj, list):
+                    for i, v in enumerate(obj):
+                        lines.extend(flatten(v, f"{prefix}[{i}]: "))
+                else:
+                    lines.append(f"{prefix}{obj}")
+                return lines
+
+            lines = flatten(data)
+            # Group into chunks of ~50 lines each for ChromaDB
+            chunk_size = 50
+            chunks = ["\n".join(lines[i:i+chunk_size]) for i in range(0, len(lines), chunk_size)]
+
+            for i, chunk in enumerate(chunks):
+                doc_id = f"{fname}_chunk_{i}"
+                collection.upsert(
+                    documents=[chunk],
+                    metadatas=[{"filename": fname, "type": "json"}],
+                    ids=[doc_id]
+                )
+            return {"message": f"Processed JSON '{fname}': {len(chunks)} semantic chunks ingested into ChromaDB."}
         
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON file — could not parse.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -205,6 +237,22 @@ async def process_query(req: QueryRequest):
                             mqtt_context += f"- {doc}\n"
                 else:
                     mqtt_context = "\n[No telemetry data available from the last 60 minutes]\n"
+
+                # Also fetch the latest intake/Google Fit info records
+                try:
+                    info_raw = live_patients_collection.get(
+                        where={"type": "info"},
+                        include=["documents", "metadatas"]
+                    )
+                    if info_raw and info_raw.get('documents') and len(info_raw['documents']) > 0:
+                        info_paired = sorted(
+                            zip(info_raw['metadatas'], info_raw['documents']),
+                            key=lambda x: x[0].get('timestamp', 0)
+                        )
+                        latest_info = info_paired[-1][1]
+                        mqtt_context = f"\n[PATIENT PROFILE / INTAKE DATA (latest)]:\n{latest_info}\n" + mqtt_context
+                except Exception:
+                    pass
                         
             except Exception as e:
                 mqtt_context = f"\n[!] Telemetry Exception: {str(e)}\n"
