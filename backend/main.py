@@ -3,6 +3,7 @@ import json
 
 # Fix for Vercel Serverless Read-Only File System
 if os.environ.get("VERCEL") == "1":
+    os.environ["HOME"] = "/tmp"  # Forces ALL libraries to use /tmp instead of /home/sbx...
     os.environ["CHROMA_CACHE_DIR"] = "/tmp/chroma_cache"
     os.environ["HF_HOME"] = "/tmp/hf_home"
     os.environ["TRANSFORMERS_CACHE"] = "/tmp/transformers_cache"
@@ -111,7 +112,13 @@ async def process_query(req: QueryRequest):
             n_results=3
         )
         
-        retrieved_context = "\n".join(results['documents'][0]) if results['documents'] else "No relevant medical context found in the database."
+        context_parts = []
+        if results and results.get('documents') and results['documents'][0]:
+            for doc_text, meta in zip(results['documents'][0], results.get('metadatas', [[]])[0]):
+                source_file = meta.get("filename", "Unknown Source") if meta else "Unknown Source"
+                context_parts.append(f"[Source: {source_file}]\n{doc_text}")
+        
+        retrieved_context = "\n\n".join(context_parts) if context_parts else "No relevant medical context found in the database."
         
         # 2. Construct Prompt dynamically based on Role
         if getattr(req, "role", "doctor") == "patient":
@@ -125,7 +132,8 @@ async def process_query(req: QueryRequest):
         else:
             system_role = (
                 "You are a knowledgeable clinical assistant specializing in cardiac rehabilitation and physiology. "
-                "Provide a clear, accurate, and medically-informed response."
+                "Provide a clear, accurate, and medically-informed response. "
+                "CRITICAL: When your answer utilizes information from the Knowledge Base Context, you MUST explicitly cite the document by its [Source: filename] within your text."
             )
 
         prompt = f"""
@@ -141,6 +149,7 @@ User Query:
 {req.query}
 
 Instructions: Use the Knowledge Base Context and Patient Data when they are relevant and helpful. 
+When extracting facts or reasoning from the Knowledge Base, distinctly cite the original filename (e.g. "According to [Source: AHA_Guidelines.pdf]...").
 If the context is not relevant, rely on your broad medical expertise. 
 Always be helpful and never refuse a question due to lack of uploaded context.
 """
@@ -148,12 +157,24 @@ Always be helpful and never refuse a question due to lack of uploaded context.
         # 3. Call local Ollama
         # Note: If Ollama isn't running, this will fail. For the hackathon demo, we'll try/except.
         try:
-            response = requests.post(OLLAMA_URL, json={
+            payload = {
                 "model": req.model,
                 "prompt": prompt,
                 "stream": False
-            }, timeout=300)
-            
+            }
+            headers = {
+                "Content-Type": "application/json",
+                "Bypass-Tunnel-Reminder": "true",
+                "ngrok-skip-browser-warning": "true"
+            }
+
+            # 3. Query the external/local Ollama instance through the secure tunnel
+            response = requests.post(
+                OLLAMA_URL,
+                json=payload,
+                headers=headers,
+                timeout=300
+            )    
             if response.status_code == 200:
                 llm_output = response.json().get("response", "No response generated.")
             else:

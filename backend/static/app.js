@@ -286,6 +286,7 @@ document.addEventListener('DOMContentLoaded', () => {
         let formattedText = text
             .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
             .replace(/\*(.*?)\*/g, '<em>$1</em>')
+            .replace(/\[Source: (.*?)\]/g, '<span class="citation-badge" title="Source Document">📄 $1</span>')
             .replace(/\n\n/g, '</p><p>')
             .replace(/\n- /g, '<br>• ');
 
