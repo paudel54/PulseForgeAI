@@ -160,11 +160,18 @@ async def process_query(req: QueryRequest):
                 current_unix = int(time.time())
                 window_start = current_unix - 3600  # last 60 minutes
                 
-                # Fetch all records from last 60 minutes
-                all_raw = live_patients_collection.get(
-                    where={"$and": [{"type": {"$eq": "raw"}}, {"timestamp": {"$gte": window_start}}]},
-                    include=["documents", "metadatas"]
-                )
+                # Fetch records from last 60 minutes (with fallback for simpler ChromaDB instances)
+                try:
+                    all_raw = live_patients_collection.get(
+                        where={"$and": [{"type": {"$eq": "raw"}}, {"timestamp": {"$gte": window_start}}]},
+                        include=["documents", "metadatas"]
+                    )
+                except Exception:
+                    # Fallback: fetch all raw records without timestamp filter
+                    all_raw = live_patients_collection.get(
+                        where={"type": "raw"},
+                        include=["documents", "metadatas"]
+                    )
                 
                 if all_raw and all_raw.get('documents') and len(all_raw['documents']) > 0:
                     # Sort ascending by timestamp
@@ -294,8 +301,11 @@ from datetime import datetime
 from fastapi import Body
 from fastapi.responses import JSONResponse
 
-# Resolve Reports/ directory relative to this file (goes up one level from /backend)
-REPORTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "Reports"))
+# Resolve Reports/ directory — use /tmp on Vercel (read-only filesystem)
+if os.environ.get("VERCEL") == "1":
+    REPORTS_DIR = "/tmp/Reports"
+else:
+    REPORTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "Reports"))
 os.makedirs(REPORTS_DIR, exist_ok=True)
 
 class ReportPayload(BaseModel):
