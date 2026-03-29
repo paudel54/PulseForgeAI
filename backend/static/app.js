@@ -342,7 +342,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function scrollToBottom() {
         const c = getChatContainer();
-        c.scrollTop = c.scrollHeight;
+        window.requestAnimationFrame(() => {
+            c.scrollTop = c.scrollHeight;
+        });
     }
 
     // ---- HTML-to-PDF Report Generation ----
