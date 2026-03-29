@@ -89,6 +89,10 @@ class HARInferenceEngine:
         fusion_path = os.path.join(act_recognition_dir, 'fusion_model_proper.pth')
         self.fusion_clf.load_state_dict(torch.load(fusion_path, map_location='cpu'))
         self.fusion_clf.to(self.device).eval()
+        
+        # State memory for Markov transitions & EMA temporal smoothing
+        self._last_state = "sitting"
+        self._ema_probs = None
 
     @torch.no_grad()
     def predict(self, acc_100hz_window: np.ndarray) -> dict:
@@ -111,23 +115,30 @@ class HARInferenceEngine:
         
         # If variance is low, the subject is Sedentary (Sitting / Standing)
         if var_mag < 2500:
+            # We reset the ML EMA memory since they stopped moving
+            self._ema_probs = None 
+
             # Posture heuristic based on gravity vector (chest strap orientation)
-            # Polar H10: Y is vertical (down), Z is sagittal (front/back)
-            # Upright standing: Z is near 0. Reclined sitting/slouching: Z magnitude increases.
             y_mean = np.mean(y)
             z_mean = np.mean(z)
-            
-            # Angle of chest tilt from purely vertical (Y-axis) in degrees
             pitch_angle = np.arctan2(abs(z_mean), abs(y_mean)) * (180.0 / np.pi)
             
-            # If leaning back/forward > 15 degrees, assume sitting.
             if pitch_angle > 15.0:
+                self._last_state = "sitting"
                 return {"label": "sitting", "confidence": {"sitting": 1.0}}
             else:
+                self._last_state = "standing"
                 return {"label": "standing", "confidence": {"standing": 1.0}}
 
         # 2. Dynamic Activity (Walking / Stair Climbing) via PyTorch ML
         # -----------------------------------------------------------------
+        # Markov Chain Transition Guard:
+        # A human cannot mathematically transition directly from 'sitting' to a full stride 
+        # or stairs. They must transition through the "Timed Up and Go" (TUG) sequence.
+        if self._last_state == "sitting":
+            self._last_state = "timed_up_and_go"
+            return {"label": "timed_up_and_go", "confidence": {"timed_up_and_go": 1.0}}
+
         # Downsample to 30 Hz (requires exactly 300 samples for 10s)
         target_len = int(acc_100hz_window.shape[0] * (30.0 / 100.0))
         acc_30hz = resample(acc_100hz_window, target_len, axis=0) # shape: (T_30, 3)
@@ -159,14 +170,24 @@ class HARInferenceEngine:
             mask[idx] = logits[idx]
         
         # Softmax only over the restricted classes
-        probs = torch.softmax(mask, dim=0).cpu().numpy()
+        current_probs = torch.softmax(mask, dim=0).cpu().numpy()
         
-        pred_idx = int(np.argmax(probs))
+        # Temporal Smoothing via Exponential Moving Average
+        # Prevents violent jumping/flacking between Walking and Stair Climbing
+        if self._ema_probs is None:
+            self._ema_probs = current_probs
+        else:
+            alpha = 0.5 # 50% persistence
+            self._ema_probs = (alpha * current_probs) + ((1.0 - alpha) * self._ema_probs)
+        
+        pred_idx = int(np.argmax(self._ema_probs))
         pred_label = SHARED_ACTIVITIES.get(pred_idx, "unknown")
         
+        self._last_state = pred_label
+        
         confidences = {
-            "walking": float(probs[1]),
-            "stair_climbing": float(probs[4])
+            "walking": float(self._ema_probs[1]),
+            "stair_climbing": float(self._ema_probs[4])
         }
         
         return {
