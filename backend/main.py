@@ -288,6 +288,87 @@ async def generate_soap_note(patient_id: str):
     except Exception:
         return {"soap_note": "[MOCKED SOAP NOTE]\nS: Patient reports feeling well post-exercise.\nO: Average HR 115 bpm. SQI 0.95.\nA: Normal exertion recovery.\nP: Continue current rehab intensity."}
 
+# ─── Report Persistence Layer ───────────────────────────────────────────────
+import re as _re
+from datetime import datetime
+from fastapi import Body
+from fastapi.responses import JSONResponse
+
+# Resolve Reports/ directory relative to this file (goes up one level from /backend)
+REPORTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "Reports"))
+os.makedirs(REPORTS_DIR, exist_ok=True)
+
+class ReportPayload(BaseModel):
+    patient_id: str = "S000"
+    role: str = "doctor"          # "doctor" | "patient"
+    report_type: str = "SOAP"     # "SOAP" | "chat_export" | "pdf_report"
+    content: str                  # Raw LLM markdown/text output
+    vitals_snapshot: dict = {}    # Live telemetry at time of generation
+    query: str = ""               # The user query that triggered the report
+
+@app.post("/api/reports/save")
+async def save_report(payload: ReportPayload):
+    """
+    Master-Plan Compliance: Persist SOAP / PDF / chat reports to the Reports/ folder.
+    Each report is saved as a structured JSON file with embedded LLM content + metadata.
+    """
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_pid = _re.sub(r"[^a-zA-Z0-9_-]", "", payload.patient_id)
+    filename = f"{ts}_{payload.report_type}_{payload.role}_{safe_pid}.json"
+    filepath = os.path.join(REPORTS_DIR, filename)
+
+    report = {
+        "metadata": {
+            "filename": filename,
+            "patient_id": payload.patient_id,
+            "role": payload.role,
+            "report_type": payload.report_type,
+            "generated_at": datetime.now().isoformat(),
+            "query": payload.query
+        },
+        "vitals_snapshot": payload.vitals_snapshot,
+        "content": payload.content
+    }
+
+    with open(filepath, "w") as f:
+        json.dump(report, f, indent=2)
+
+    return {"status": "saved", "filename": filename, "path": filepath}
+
+@app.get("/api/reports")
+async def list_reports():
+    """Return a list of all saved reports, newest first."""
+    try:
+        files = sorted(
+            [f for f in os.listdir(REPORTS_DIR) if f.endswith(".json")],
+            reverse=True
+        )
+        summaries = []
+        for fname in files[:50]:  # cap at 50
+            try:
+                with open(os.path.join(REPORTS_DIR, fname)) as f:
+                    data = json.load(f)
+                summaries.append({
+                    "filename": fname,
+                    "metadata": data.get("metadata", {}),
+                    "preview": data.get("content", "")[:200]
+                })
+            except Exception:
+                continue
+        return {"reports": summaries, "total": len(files)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/reports/{filename}")
+async def get_report(filename: str):
+    """Fetch a single full report by filename."""
+    safe = _re.sub(r"[^a-zA-Z0-9_.\\-]", "", filename)
+    filepath = os.path.join(REPORTS_DIR, safe)
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="Report not found")
+    with open(filepath) as f:
+        return json.load(f)
+
 # Mount the static directory to serve HTML/CSS/JS exactly as they are laid out
 # MUST BE AT THE BOTTOM to prevent shadowing other routes
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

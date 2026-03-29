@@ -363,9 +363,9 @@ document.addEventListener('DOMContentLoaded', () => {
     btnReport.addEventListener('click', async () => {
         const query = currentRole === 'patient'
             ? "Generate a simple, highly encouraging progress report summarizing my current vitals vs my 5-day and 15-day history."
-            : "Generate a formal clinical evaluation report comparing the patient's baseline resting vitals to their 5-day and 15-day historical data. Provide a professional medical assessment.";
+            : "Generate a formal SOAP note for this cardiac rehab session. Use S (Subjective), O (Objective), A (Assessment), P (Plan) sections. Include all live heart rate and HRV telemetry data.";
 
-        addMessage(`Requesting formal ${currentRole} report...`, 'user');
+        addMessage(`Requesting formal ${currentRole} SOAP report...`, 'user');
 
         const loadingId = addLoadingMessage();
 
@@ -391,9 +391,13 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById(loadingId)?.remove();
 
             if (response.ok) {
+                // Save to Reports/ folder on server
+                await saveReportToServer(result.llm_response, 'SOAP', query);
+
                 const encodedText = encodeURIComponent(result.llm_response);
                 const htmlText = result.llm_response + `<br><br><button onclick="downloadReport(this)" data-content="${encodedText}" class="report-btn" style="display:inline-flex; border-color:var(--text); color:var(--text);"><i data-lucide="printer"></i> Print / Save as PDF</button>`;
                 addMessage(htmlText, 'system', null);
+                addSystemNotice('✅ Report saved to Reports/ folder on server.');
             } else {
                 addMessage(`Error: ${result.detail}`, 'system', null, true);
             }
@@ -402,6 +406,31 @@ document.addEventListener('DOMContentLoaded', () => {
             addMessage('System Error.', 'system', null, true);
         }
     });
+
+    // ---- Report Server Persistence ----
+    async function saveReportToServer(content, reportType = 'chat_export', query = '') {
+        try {
+            await fetch('/api/reports/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    patient_id: 'S000',
+                    role: currentRole,
+                    report_type: reportType,
+                    content: content,
+                    query: query,
+                    vitals_snapshot: {
+                        hr: liveState.hr,
+                        hrv: liveState.hrv,
+                        status: liveState.status,
+                        timestamp: liveState.lastUpdated
+                    }
+                })
+            });
+        } catch (e) {
+            console.warn('Report save failed (non-critical):', e);
+        }
+    }
 
     window.downloadReport = function (btn) {
         const text = decodeURIComponent(btn.getAttribute('data-content'));
