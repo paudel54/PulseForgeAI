@@ -5,7 +5,7 @@ from pathlib import Path
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QTabWidget, QWidget, QFormLayout, QSpinBox, QComboBox, QDoubleSpinBox,
-    QDateEdit, QCheckBox, QMessageBox, QGroupBox
+    QDateEdit, QCheckBox, QMessageBox, QGroupBox, QTextEdit, QFileDialog
 )
 from PyQt5.QtCore import Qt, QDate
 
@@ -68,6 +68,7 @@ class IntakeFormDialog(QDialog):
         self._build_tab1()
         self._build_tab2()
         self._build_tab3()
+        self._build_tab4()
         
         # Buttons
         btn_layout = QHBoxLayout()
@@ -169,6 +170,85 @@ class IntakeFormDialog(QDialog):
         
         self.tabs.addTab(w, "Risk & Symptoms")
 
+    def _build_tab4(self):
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        
+        instructions = QLabel(
+            "<b>Google Fit Historical Sync</b><br><br>"
+            "1. Go to <a href='https://console.cloud.google.com/'>Google Cloud Console</a>.<br>"
+            "2. Enable 'Fitness API' and setup OAuth Consent Screen.<br>"
+            "3. Create OAuth Desktop App credentials and download <code>client_secret.json</code>.<br>"
+            "4. Select it below to sync historical steps, sleep, and heart data."
+        )
+        instructions.setOpenExternalLinks(True)
+        instructions.setWordWrap(True)
+        layout.addWidget(instructions)
+        
+        self.f_timeframe = QComboBox()
+        self.f_timeframe.addItems(["7_days", "1_month"])
+        
+        tf_layout = QHBoxLayout()
+        tf_layout.addWidget(QLabel("Timeframe:"))
+        tf_layout.addWidget(self.f_timeframe)
+        layout.addLayout(tf_layout)
+        
+        btn_layout = QHBoxLayout()
+        self.btn_select_secret = QPushButton("1. Select client_secret.json")
+        self.btn_select_secret.clicked.connect(self._select_client_secret)
+        
+        self.btn_sync_fit = QPushButton("2. Connect & Sync")
+        self.btn_sync_fit.clicked.connect(self._sync_google_fit)
+        
+        btn_layout.addWidget(self.btn_select_secret)
+        btn_layout.addWidget(self.btn_sync_fit)
+        layout.addLayout(btn_layout)
+        
+        self.lbl_secret_path = QLabel("No secret loaded.")
+        self.lbl_secret_path.setStyleSheet("color: gray; font-style: italic;")
+        layout.addWidget(self.lbl_secret_path)
+        
+        self.txt_fit_status = QTextEdit()
+        self.txt_fit_status.setReadOnly(True)
+        layout.addWidget(self.txt_fit_status)
+        
+        self.tabs.addTab(w, "Historical Baseline (Fit)")
+        
+        self._client_secret_path = "client_secret.json"
+        
+    def _select_client_secret(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Select client_secret.json", "", "JSON Files (*.json)")
+        if path:
+            self._client_secret_path = path
+            self.lbl_secret_path.setText(f"Loaded: {os.path.basename(path)}")
+
+    def _sync_google_fit(self):
+        self.txt_fit_status.append("Initializing OAuth flow (check web browser)...")
+        self.repaint() # Force UI update before blocking call
+        
+        try:
+            from polar_ecg.utils.google_fit_fetcher import GoogleFitFetcher
+            fetcher = GoogleFitFetcher(client_secret_path=self._client_secret_path)
+            
+            if fetcher.authenticate():
+                self.txt_fit_status.append("Authenticated successfully. Fetching data...")
+                self.repaint()
+                
+                tf = self.f_timeframe.currentText()
+                data = fetcher.fetch_historical_summary(timeframe=tf)
+                
+                self._historical_data = data
+                
+                total_steps = sum(d["steps"] for d in data["days"])
+                overall_sleep = sum(d["sleep_hours"] for d in data["days"])
+                
+                self.txt_fit_status.append(f"Success! Fetched {len(data['days'])} days of metrics.")
+                self.txt_fit_status.append(f"Total Steps: {total_steps:,}")
+                self.txt_fit_status.append(f"Total Sleep: {overall_sleep:.1f} hrs")
+                
+        except Exception as e:
+            self.txt_fit_status.append(f"Error: {e}")
+
     def _clear_form(self):
         self.subject_id_edit.clear()
         self.f_age.setValue(50)
@@ -220,6 +300,11 @@ class IntakeFormDialog(QDialog):
             "dyspnea": self.f_dyspnea.currentText(),
             "phq2": self.f_phq2.value()
         }
+        
+        if hasattr(self, '_historical_data') and self._historical_data:
+            payload["historical_baseline"] = self._historical_data
+            
+        return payload
 
     def _on_save(self):
         if not self.subject_id_edit.text().strip():
