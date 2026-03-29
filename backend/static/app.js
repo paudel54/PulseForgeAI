@@ -31,8 +31,8 @@ document.addEventListener('DOMContentLoaded', () => {
             document.body.classList.remove('theme-patient');
             btnDoc.classList.add('active');
             btnPat.classList.remove('active');
-            currentModel = 'hf.co/unsloth/medgemma-4b-it-GGUF:Q4_K_M';
-            agentNameEl.textContent = 'MedGemma 4B';
+            currentModel = 'alibayram/medgemma:27b';
+            agentNameEl.textContent = 'MedGemma 27B';
             chatMessagesDoc.style.display = '';
             chatMessagesPat.style.display = 'none';
         } else {
@@ -434,52 +434,91 @@ document.addEventListener('DOMContentLoaded', () => {
         printWindow.document.close();
     };
 
-    // ---- Live MQTT Metric Polling ----
-    async function pollLiveMetrics() {
-        try {
-            const res = await fetch('/api/live/metrics');
-            const data = await res.json();
-
-            document.getElementById('live-hr').innerHTML = `${data.hr} <small>bpm</small>`;
-            document.getElementById('live-hrv').innerHTML = `${data.hrv} <small>ms</small>`;
-
-            const statusEl = document.getElementById('live-status');
-            statusEl.textContent = data.status;
-
-            if (data.status === 'Offline' || data.status === 'Waiting...') {
-                statusEl.className = 'vital-value';
-                document.querySelectorAll('.pulse-dot').forEach(el => {
-                    el.style.animation = 'none';
-                    el.style.backgroundColor = '#ccc';
-                });
-            } else {
-                statusEl.className = 'vital-value status-ok';
-                document.querySelectorAll('.pulse-dot').forEach(el => {
-                    el.style.animation = 'pulse 1.5s infinite';
-                    el.style.backgroundColor = 'var(--accentPrimary)';
-                });
+    const hrCtx = document.getElementById('hrChart');
+    let hrChart = null;
+    if (hrCtx) {
+        hrChart = new Chart(hrCtx.getContext('2d'), {
+            type: 'line',
+            data: {
+                labels: Array(20).fill(''),
+                datasets: [{
+                    label: 'HR (bpm)',
+                    data: Array(20).fill(null),
+                    borderColor: '#4facfe',
+                    backgroundColor: 'rgba(79, 172, 254, 0.15)',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false }, tooltip: { enabled: false } },
+                scales: {
+                    x: { display: true, title: { display: true, text: 'Time (s)', color: '#666', font: { size: 10 } } },
+                    y: { display: true, title: { display: true, text: 'Heart Range (bpm)', color: '#666', font: { size: 10 } }, min: 40, max: 150 }
+                },
+                animation: { duration: 0 }
             }
-
-            // Hero Telemetry Card
-            document.getElementById('hero-hr').innerHTML = `${data.hr} <small>bpm</small>`;
-            document.getElementById('hero-hrv').innerHTML = `${data.hrv} <small>ms</small>`;
-
-            const heroStatusEl = document.getElementById('hero-status');
-            heroStatusEl.textContent = data.status;
-
-            if (data.status === 'Offline' || data.status === 'Waiting...') {
-                heroStatusEl.className = 'hero-value';
-            } else {
-                heroStatusEl.className = 'hero-value status-ok';
-            }
-
-        } catch (e) {
-            console.error("Live metrics polling failed", e);
-        }
+        });
     }
 
-    // Begin Live Polling Stream
-    setInterval(pollLiveMetrics, 3000);
-    pollLiveMetrics();
+    // ---- Live MQTT WSS Stream (Vercel Edge Rendering) ----
+    const mqttClient = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
+
+    mqttClient.on('connect', () => {
+        console.log("Connected to EMQX WSS Broker!");
+        mqttClient.subscribe('pulseforgeai/+/raw');
+    });
+
+    mqttClient.on('message', (topic, message) => {
+        try {
+            const data = JSON.parse(message.toString());
+            let hr = data.heart_rate?.avg_bpm_ecg;
+            if (hr === null || hr === undefined) hr = '--';
+
+            let hrv = data.hrv?.rmssd_ms ?? '--';
+            if (hrv !== '--') hrv = parseFloat(hrv).toFixed(1);
+
+            let status = data.accelerometer?.activity?.label ?? 'Unknown';
+            status = status.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase());
+
+            // Sidebar Vitals Card
+            document.getElementById('live-hr').innerHTML = `${hr} <small>bpm</small>`;
+            document.getElementById('live-hrv').innerHTML = `${hrv} <small>ms</small>`;
+
+            const statusEl = document.getElementById('live-status');
+            statusEl.textContent = status;
+            statusEl.className = 'vital-value status-ok';
+
+            document.querySelectorAll('.pulse-dot').forEach(el => {
+                el.style.animation = 'pulse 1.5s infinite';
+                el.style.backgroundColor = 'var(--accentPrimary)';
+            });
+
+            // Hero Telemetry Card
+            const heroHr = document.getElementById('hero-hr');
+            const heroHrv = document.getElementById('hero-hrv');
+            const heroStatus = document.getElementById('hero-status');
+            if (heroHr) heroHr.innerHTML = `${hr} <small>bpm</small>`;
+            if (heroHrv) heroHrv.innerHTML = `${hrv} <small>ms</small>`;
+            if (heroStatus) {
+                heroStatus.textContent = status;
+                heroStatus.className = 'hero-value status-ok';
+            }
+
+            // Update realtime Chart
+            if (hrChart && hr !== '--') {
+                const hrValue = parseFloat(hr);
+                hrChart.data.datasets[0].data.shift();
+                hrChart.data.datasets[0].data.push(hrValue);
+                hrChart.update();
+            }
+        } catch (e) {
+            console.error("MQTT parse error", e);
+        }
+    });
 
 });
