@@ -12,6 +12,7 @@ SCOPES = [
     'https://www.googleapis.com/auth/fitness.activity.read',
     'https://www.googleapis.com/auth/fitness.body.read',
     'https://www.googleapis.com/auth/fitness.heart_rate.read',
+    'https://www.googleapis.com/auth/fitness.body_temperature.read',
     'https://www.googleapis.com/auth/fitness.sleep.read'
 ]
 
@@ -84,6 +85,9 @@ class GoogleFitFetcher:
                     "dataSourceId": "derived:com.google.heart_rate.bpm:com.google.android.gms:merge_heart_rate_bpm"
                 },
                 {
+                    "dataTypeName": "com.google.body.temperature"
+                },
+                {
                     "dataTypeName": "com.google.sleep.segment",
                 }
             ],
@@ -111,6 +115,7 @@ class GoogleFitFetcher:
                 "calories": 0.0,
                 "heart_points": 0.0,
                 "avg_bpm": None,
+                "body_temp": None,
                 "sleep_hours": 0.0
             }
             
@@ -121,19 +126,19 @@ class GoogleFitFetcher:
                 val = points[0].get('value', [{}])[0]
                 
                 dt_name = ds.get('dataSourceId', '')
+                dt_type = ds.get('dataTypeName', '')
                 
-                if 'step_count' in dt_name:
+                if 'step_count' in dt_name or 'step_count' in dt_type:
                     day_data["steps"] = val.get("intVal", 0)
-                elif 'calories' in dt_name:
+                elif 'calories' in dt_name or 'calories' in dt_type:
                     day_data["calories"] = round(val.get("fpVal", 0.0), 1)
-                elif 'heart_minutes' in dt_name:
+                elif 'heart_minutes' in dt_name or 'heart_minutes' in dt_type:
                     day_data["heart_points"] = val.get("fpVal", 0.0)
-                elif 'heart_rate' in dt_name:
-                    # avg_bpm
+                elif 'heart_rate' in dt_name or 'heart_rate' in dt_type:
                     day_data["avg_bpm"] = round(val.get("fpVal", 0.0), 1)
-                elif 'sleep' in dt_name or len(ds.get('dataSourceId', '')) == 0:
-                    # Sleep is sometimes tracked differently, sum segment durations mapping to true sleep
-                    # But if we just sum the duration returned in aggregate:
+                elif 'temperature' in dt_name or 'temperature' in dt_type:
+                    day_data["body_temp"] = round(val.get("fpVal", 0.0), 1)
+                elif 'sleep' in dt_name or 'sleep' in dt_type or len(dt_name) == 0:
                     sleep_ms = sum([p['endTimeNanos'] - p['startTimeNanos'] for p in points]) / 1000000.0
                     day_data["sleep_hours"] = round((sleep_ms / 1000.0) / 3600.0, 2)
                     
