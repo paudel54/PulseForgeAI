@@ -3,6 +3,7 @@ import json
 
 # Fix for Vercel Serverless Read-Only File System
 if os.environ.get("VERCEL") == "1":
+    os.environ["HOME"] = "/tmp"  # Forces ALL libraries to use /tmp instead of /home/sbx...
     os.environ["CHROMA_CACHE_DIR"] = "/tmp/chroma_cache"
     os.environ["HF_HOME"] = "/tmp/hf_home"
     os.environ["TRANSFORMERS_CACHE"] = "/tmp/transformers_cache"
