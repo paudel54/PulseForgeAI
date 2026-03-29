@@ -149,12 +149,24 @@ Always be helpful and never refuse a question due to lack of uploaded context.
         # 3. Call local Ollama
         # Note: If Ollama isn't running, this will fail. For the hackathon demo, we'll try/except.
         try:
-            response = requests.post(OLLAMA_URL, json={
+            payload = {
                 "model": req.model,
                 "prompt": prompt,
                 "stream": False
-            }, timeout=300)
-            
+            }
+            headers = {
+                "Content-Type": "application/json",
+                "Bypass-Tunnel-Reminder": "true",
+                "ngrok-skip-browser-warning": "true"
+            }
+
+            # 3. Query the external/local Ollama instance through the secure tunnel
+            response = requests.post(
+                OLLAMA_URL,
+                json=payload,
+                headers=headers,
+                timeout=300
+            )    
             if response.status_code == 200:
                 llm_output = response.json().get("response", "No response generated.")
             else:
