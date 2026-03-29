@@ -58,6 +58,19 @@ def main():
         json.dump(first_row_emb, f)
     print(f"[*] Exported baseline reference embedding to {MOCK_EMB_PATH} for live Vercel testing.")
 
+    def safe_float(val):
+        if pd.isna(val) or val is None:
+            return 0.0
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return 0.0
+
+    def safe_str(val):
+        if pd.isna(val) or val is None:
+            return "Unknown"
+        return str(val)
+
     for start_idx in range(0, len(df), batch_size):
         end_idx = min(start_idx + batch_size, len(df))
         batch_df = df.iloc[start_idx:end_idx]
@@ -70,16 +83,12 @@ def main():
         
         for i, (_, row) in enumerate(batch_df.iterrows()):
             meta = {
-                "source_record": str(row.get("record_name", f"Patient_{start_idx+i}")),
-                "hrv_rmssd": float(row.get("hrv_rmssd", 0.0)),
-                "exercise_label": str(row.get("exercise_label", "Unknown")),
-                "max_gait_velocity": float(row.get("bal_max_gait_line_velocity_cm_s", 0.0)),
-                "mean_hr": float(row.get("hrv_mean_hr", 0.0))
+                "source_record": safe_str(row.get("record_name", f"Patient_{start_idx+i}")),
+                "hrv_rmssd": safe_float(row.get("hrv_rmssd")),
+                "exercise_label": safe_str(row.get("exercise_label", "Unknown")),
+                "max_gait_velocity": safe_float(row.get("bal_max_gait_line_velocity_cm_s")),
+                "mean_hr": safe_float(row.get("hrv_mean_hr"))
             }
-            # Clean NaNs in metadata (ChromaDB rejects NaNs)
-            for k, v in meta.items():
-                if pd.isna(v):
-                    meta[k] = 0.0 if isinstance(v, float) else "Unknown"
             
             metadatas.append(meta)
             ids.append(f"physionet_cohort_{start_idx + i}")
