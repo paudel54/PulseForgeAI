@@ -1,5 +1,15 @@
 import os
 import json
+
+# Fix for Vercel Serverless Read-Only File System
+if os.environ.get("VERCEL") == "1":
+    os.environ["CHROMA_CACHE_DIR"] = "/tmp/chroma_cache"
+    os.environ["HF_HOME"] = "/tmp/hf_home"
+    os.environ["TRANSFORMERS_CACHE"] = "/tmp/transformers_cache"
+    os.makedirs("/tmp/chroma_cache", exist_ok=True)
+    os.makedirs("/tmp/hf_home", exist_ok=True)
+    os.makedirs("/tmp/transformers_cache", exist_ok=True)
+
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
