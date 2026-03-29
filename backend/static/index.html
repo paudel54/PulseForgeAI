@@ -130,7 +130,7 @@
 
             <!-- Chat Window -->
             <div class="chat-container glass-panel">
-                <div class="chat-messages" id="chat-messages">
+                <div class="chat-messages" id="chat-messages-doc">
                     <!-- Initial system message -->
                     <div class="message system-message fade-in">
                         <div class="avatar system-avatar"><i data-lucide="bot"></i></div>
@@ -140,6 +140,16 @@
                                 specialized queries, upload a research paper or clinical guideline to the
                                 <strong>Library</strong> and I'll use it as context.
                             </p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="chat-messages" id="chat-messages-pat" style="display: none;">
+                    <div class="message system-message fade-in">
+                        <div class="avatar system-avatar"><i data-lucide="bot"></i></div>
+                        <div class="message-content">
+                            <p><strong>Hello and welcome!</strong> I am your personal health companion powered by
+                                PulseForgeAI. How can I help you understand your recovery today?</p>
                         </div>
                     </div>
                 </div>
