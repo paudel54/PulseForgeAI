@@ -285,8 +285,11 @@ document.addEventListener('DOMContentLoaded', () => {
         msgDiv.innerHTML = `
             <div class="avatar system-avatar"><i data-lucide="bot"></i></div>
             <div class="message-content">
-                <div class="typing-indicator">
-                    <span></span><span></span><span></span>
+                <div style="display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 0.9rem;">
+                    <div class="typing-indicator">
+                        <span></span><span></span><span></span>
+                    </div>
+                    <em>Generating response...</em>
                 </div>
             </div>
         `;

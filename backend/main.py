@@ -16,12 +16,16 @@ collection = chroma_client.get_or_create_collection(name="medical_docs")
 
 # Configuration for local Ollama
 OLLAMA_URL = "http://localhost:11434/api/generate"
-MODEL_NAME = "hf.co/unsloth/medgemma-4b-it-GGUF:Q4_K_M" # Change to your pulled model
+# MODEL_NAME = "hf.co/unsloth/medgemma-4b-it-GGUF:Q4_K_M" # Change to your pulled model
+MODEL_NAME = "alibayram/medgemma:27b" # Change to your pulled model
+
+
 
 class QueryRequest(BaseModel):
     query: str
     patient_data: dict # Dummy Polar H10 Data
-    model: str = "hf.co/unsloth/medgemma-4b-it-GGUF:Q4_K_M"
+    # model: str = "hf.co/unsloth/medgemma-4b-it-GGUF:Q4_K_M"
+    model: str = MODEL_NAME
 
 @app.post("/upload")
 async def upload_document(file: UploadFile = File(...)):
@@ -124,7 +128,7 @@ Always be helpful and never refuse a question due to lack of uploaded context.
                 "model": req.model,
                 "prompt": prompt,
                 "stream": False
-            }, timeout=30)
+            }, timeout=300)
             
             if response.status_code == 200:
                 llm_output = response.json().get("response", "No response generated.")
