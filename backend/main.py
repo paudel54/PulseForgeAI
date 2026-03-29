@@ -10,12 +10,13 @@ import requests
 
 app = FastAPI(title="PulseForgeAI Backend")
 
-# Initialize ChromaDB locally
-chroma_client = chromadb.PersistentClient(path="./chroma_db")
+# Initialize ChromaDB (Use /tmp for Vercel Serverless compatibility)
+DB_PATH = "/tmp/chroma_db" if os.environ.get("VERCEL") == "1" else "./chroma_db"
+chroma_client = chromadb.PersistentClient(path=DB_PATH)
 collection = chroma_client.get_or_create_collection(name="medical_docs")
 
-# Configuration for local Ollama
-OLLAMA_URL = "http://localhost:11434/api/generate"
+# Configuration for local Ollama - Supports tunneling via ngrok on Vercel
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
 # MODEL_NAME = "hf.co/unsloth/medgemma-4b-it-GGUF:Q4_K_M" # Change to your pulled model
 MODEL_NAME = "alibayram/medgemma:27b" # Change to your pulled model
 
