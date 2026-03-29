@@ -9,7 +9,7 @@
   </p>
 </div>
 
-Cardiac rehabilitation is a Class 1a recommended therapy that reduces all-cause mortality by 13% and hospitalizations by 31%. However, owing to supervision bottlenecks and resourcing, **only 24% of eligible Medicare beneficiaries ever attend a session**. Current commercial AI monitoring solutions rely heavily on cloud APIs which introduce high HIPAA compliance costs, unpredictable 100-500ms latencies, and total dependency on off-site servers for emergency telemetry.
+Cardiac rehabilitation is a Class 1A recommended therapy that reduces all-cause mortality by 13% and hospitalizations by 31%. However, owing to supervision bottlenecks and resourcing, **only 24% of eligible Medicare beneficiaries ever attend a session**. Current commercial AI monitoring solutions rely heavily on cloud APIs which introduce high HIPAA compliance costs, unpredictable 100-500ms latencies, and total dependency on off-site servers for emergency telemetry.
 
 **PulseForgeAI** solves the cardiac rehab participation gap by providing an intelligent supervision system that operates entirely on-campus. Deployed locally on the NVIDIA DGX Spark, the system securely processes raw Polar H10 streaming data through custom foundation models and coordinates robust, localized conversational coaching and automated clinical documentation workflows via multi-agent intelligence—driving 80-87% reductions in charting times while ensuring that **patient data never leaves the building**.
 
