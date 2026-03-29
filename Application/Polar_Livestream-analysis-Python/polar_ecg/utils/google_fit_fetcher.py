@@ -91,10 +91,9 @@ class GoogleFitFetcher:
         metrics = [
             ("steps", "com.google.step_count.delta"),
             ("calories", "com.google.calories.expended"),
-            ("heart_points", "com.google.heart_minutes.summary"),
+            ("heart_points", "com.google.heart_minutes"),
             ("avg_bpm", "com.google.heart_rate.bpm"),
-            ("body_temp", "com.google.body.temperature"),
-            ("sleep", "com.google.sleep.segment")
+            ("body_temp", "com.google.body.temperature")
         ]
         
         for key, type_name in metrics:
@@ -130,12 +129,37 @@ class GoogleFitFetcher:
                             day_data["avg_bpm"] = round(val.get("fpVal", 0.0), 1)
                         elif key == "body_temp":
                             day_data["body_temp"] = round(val.get("fpVal", 0.0), 1)
-                        elif key == "sleep":
-                            sleep_ms = sum([p['endTimeNanos'] - p['startTimeNanos'] for p in points]) / 1.0e6
-                            day_data["sleep_hours"] += round((sleep_ms / 1000.0) / 3600.0, 2)
                             
             except HttpError as e:
                 # Silently ignore sensors the user does not possess
                 pass
+                
+        # --- Fetch Sleep Data via Sessions API ---
+        # Google Fit aggregate drops sleep sessions that cross midnight.
+        # It is highly recommended to use the Sessions endpoint (activityType=72).
+        try:
+            start_iso = start.strftime('%Y-%m-%dT%H:%M:%S.000Z')
+            end_iso = now.strftime('%Y-%m-%dT%H:%M:%S.000Z')
+            
+            sessions_res = service.users().sessions().list(
+                userId="me", 
+                startTime=start_iso,
+                endTime=end_iso,
+                activityType=72
+            ).execute()
+            
+            for session in sessions_res.get('session', []):
+                s_start = int(session.get('startTimeMillis', 0))
+                s_end = int(session.get('endTimeMillis', 0))
+                if s_start == 0 or s_end == 0: continue
+                
+                # Assign the sleep session to the date it started on
+                day_str = datetime.fromtimestamp(s_start / 1000.0).strftime('%Y-%m-%d')
+                day_data = next((d for d in summary['days'] if d['date'] == day_str), None)
+                if day_data:
+                    sleep_hours = (s_end - s_start) / 3600000.0  # ms to hr
+                    day_data["sleep_hours"] += round(sleep_hours, 2)
+        except Exception as e:
+            print(f"Failed to fetch sleep sessions: {e}")
             
         return summary
