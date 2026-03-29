@@ -2,6 +2,13 @@ import os
 import chromadb
 from pypdf import PdfReader
 
+try:
+    from sentence_transformers import SentenceTransformer
+    HAS_SENTENCE_TRANSFORMERS = True
+except ImportError:
+    print("[!] sentence_transformers not found. Falling back to default ChromaDB MiniLM.")
+    HAS_SENTENCE_TRANSFORMERS = False
+
 # Directory Configurations
 LITERATURE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "Reference_Literature"))
 DB_PATH = os.path.join(os.path.dirname(__file__), "chroma_db")
@@ -28,8 +35,18 @@ def main():
     print(f"[*] Found {len(pdf_files)} PDF(s) to process. Initializing offline ChromaDB...")
     
     chroma_client = chromadb.PersistentClient(path=DB_PATH)
-    collection = chroma_client.get_or_create_collection(name="medical_docs")
     
+    # NLP Plan Alignment: Integrate Microsoft PubMedBERT explicitly for medical RAG
+    if HAS_SENTENCE_TRANSFORMERS:
+        print("[*] Booting microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract...")
+        from chromadb.utils import embedding_functions
+        pubmed_ef = embedding_functions.SentenceTransformerEmbeddingFunction(
+            model_name="microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract"
+        )
+        collection = chroma_client.get_or_create_collection(name="medical_docs", embedding_function=pubmed_ef)
+    else:
+        collection = chroma_client.get_or_create_collection(name="medical_docs")
+        
     total_chunks = 0
     
     for filename in pdf_files:

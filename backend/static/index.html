@@ -75,15 +75,15 @@
                 <div class="vitals-grid">
                     <div class="vital-stat">
                         <span class="vital-label">HR</span>
-                        <span class="vital-value">72 <small>bpm</small></span>
+                        <span class="vital-value" id="live-hr">-- <small>bpm</small></span>
                     </div>
                     <div class="vital-stat">
                         <span class="vital-label">HRV</span>
-                        <span class="vital-value">45.2 <small>ms</small></span>
+                        <span class="vital-value" id="live-hrv">-- <small>ms</small></span>
                     </div>
                     <div class="vital-stat rr-stat">
                         <span class="vital-label">Status</span>
-                        <span class="vital-value status-ok">Resting</span>
+                        <span class="vital-value status-ok" id="live-status">Connecting...</span>
                     </div>
                 </div>
             </div>
@@ -130,6 +130,28 @@
 
             <!-- Chat Window -->
             <div class="chat-container glass-panel">
+                <!-- LIVE TELEMETRY HERO SECTION -->
+                <div class="live-hero-card fade-in" id="hero-telemetry">
+                    <div class="hero-header">
+                        <h2><i data-lucide="activity"></i> Live Clinical Telemetry (Patient: S000) <span
+                                class="pulse-dot"></span></h2>
+                    </div>
+                    <div class="hero-metrics-grid">
+                        <div class="hero-stat">
+                            <span class="hero-label">Heart Rate</span>
+                            <span class="hero-value" id="hero-hr">-- <small>bpm</small></span>
+                        </div>
+                        <div class="hero-stat">
+                            <span class="hero-label">HRV (RMSSD)</span>
+                            <span class="hero-value" id="hero-hrv">-- <small>ms</small></span>
+                        </div>
+                        <div class="hero-stat">
+                            <span class="hero-label">Kinematic Load</span>
+                            <span class="hero-value status-ok" id="hero-status">Connecting...</span>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="chat-messages" id="chat-messages-doc">
                     <!-- Initial system message -->
                     <div class="message system-message fade-in">
