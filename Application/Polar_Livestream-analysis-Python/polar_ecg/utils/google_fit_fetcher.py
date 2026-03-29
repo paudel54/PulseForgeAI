@@ -76,15 +76,17 @@ class GoogleFitFetcher:
         # Pre-allocate day dictionaries
         for i in range(num_days + 1):
             d = start + timedelta(days=i)
+            day_str = d.strftime('%Y-%m-%d')
+            b_start_ms = int(datetime.strptime(day_str, '%Y-%m-%d').timestamp() * 1000)
             summary["days"].append({
-                "date": d.strftime('%Y-%m-%d'),
+                "date": day_str,
                 "steps": 0,
                 "calories": 0.0,
                 "heart_points": 0.0,
                 "avg_bpm": None,
-                "hr_array": [],
+                "hr_array": {"start_ts": b_start_ms, "interval_ms": 900000, "values": [None]*96},
                 "body_temp": None,
-                "temp_array": [],
+                "temp_array": {"start_ts": b_start_ms, "interval_ms": 900000, "values": [None]*96},
                 "sleep_hours": 0.0,
                 "sleep_stages": {
                     "light": 0.0,
@@ -171,18 +173,17 @@ class GoogleFitFetcher:
                         val = points[0].get('value', [{}])[0]
                         reading = round(val.get("fpVal", 0.0), 1)
                         if reading > 0:
-                            day_data[key].append({
-                                "ts": b_start,
-                                "val": reading
-                            })
+                            idx = int((b_start - day_data[key]["start_ts"]) / 900000)
+                            if 0 <= idx < 96:
+                                day_data[key]["values"][idx] = reading
             except HttpError:
                 pass
 
-        # --- Fetch Sleep Stages via session bucketing ---
+        # --- Fetch Sleep Stages via Time bucketing (24-hour chunks) ---
         try:
             sleep_req = {
                 "aggregateBy": [{"dataTypeName": "com.google.sleep.segment"}],
-                "bucketBySession": { "minDurationMillis": 0 },
+                "bucketByTime": { "durationMillis": 86400000 },
                 "startTimeMillis": start_time_ms,
                 "endTimeMillis": end_time_ms
             }

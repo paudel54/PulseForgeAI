@@ -261,8 +261,8 @@ class IntakeFormDialog(QDialog):
                 hr_days = sum(1 for d in data["days"] if d.get("avg_bpm") is not None)
                 temp_days = sum(1 for d in data["days"] if d.get("body_temp") is not None)
                 
-                hr_pts = sum(len(d.get("hr_array", [])) for d in data["days"])
-                temp_pts = sum(len(d.get("temp_array", [])) for d in data["days"])
+                hr_pts = sum(sum(1 for v in d.get("hr_array", {}).get("values", []) if v is not None) for d in data["days"])
+                temp_pts = sum(sum(1 for v in d.get("temp_array", {}).get("values", []) if v is not None) for d in data["days"])
                 
                 deep_hrs = sum(d["sleep_stages"]["deep"] for d in data["days"])
                 rem_hrs = sum(d["sleep_stages"]["rem"] for d in data["days"])
