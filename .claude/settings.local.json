@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wc -l /c/Users/viggi/Documents/Github/PulseForgeAI/Act_Recoginition/Train_Model/*.py /c/Users/viggi/Documents/Github/PulseForgeAI/Act_Recoginition/Prediction_Model/*.py /c/Users/viggi/Documents/Github/PulseForgeAI/Act_Recoginition/Data_Preparation/*.py)",
+      "Bash(xargs wc:*)"
+    ]
+  }
+}

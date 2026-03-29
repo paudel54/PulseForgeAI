@@ -1,102 +1,89 @@
-<div align="center">
-  <h1>Talk to Your Heart (PulseForgeAI)</h1>
-  <p><strong>On-Campus Cardiac Virtual Rehab — Powered by Edge AI on DGX Spark</strong></p>
-  <p>
-    <a href="#architecture">Architecture</a> •
-    <a href="#key-features">Features</a> •
-    <a href="#quickstart">Quickstart</a> •
-    <a href="#clinical-ai">Clinical Agents</a>
-  </p>
-</div>
+# Polar H10 BLE Signal Processing Application
 
-Cardiac rehabilitation reduces mortality by 13% and hospitalizations by 31%, but only 24% of eligible patients ever attend a session. Clinics lack the supervision bandwidth to run multi-patient sessions safely. Current telemetry solutions rely on cloud endpoints, which introduce HIPAA compliance risks, unpredictable latency, and vendor lock-in.
+**PyQt5 desktop application for real-time cardiac rehabilitation monitoring using the Polar H10 chest strap.**
 
-**PulseForgeAI** is an intelligent supervision system that lives entirely on-campus. It ingests live physiologic data from Polar H10 chest straps, processes signal patterns using local foundation models, and coordinates three distinct local LLM agents to provide real-time patient coaching and clinical documentation. Patient data never leaves the building.
+This is the signal acquisition and processing frontend for the Talk to Your Heart platform. It connects to a Polar H10 via BLE, processes ECG and accelerometer streams through a dual-window analysis pipeline, publishes structured physiologic features over MQTT, and displays real-time clinical metrics.
 
-## 🧠 The Architecture
+## Features
 
-By deploying to the **NVIDIA DGX Spark (128 GB Unified LPDDR5x)**, we bypass PCIe transfer bottlenecks. Real-time CPU signal processing directly hands off to GPU-bound vLLM instances in a zero-copy loop.
+- **Polar H10 BLE Acquisition** — ECG at 130 Hz, ACC at 100 Hz, HR + RR intervals
+- **Dual-Window Signal Processing** — 5-second and 30-second concurrent analysis windows
+- **Mock Sensor Mode** — synthetic ECG/ACC generation for testing without hardware (`--mock`)
+- **MQTT Publishing** — structured vitals JSON to per-patient MQTT topics
+- **Google Fit Integration** — 7-day longitudinal baseline (HR, steps, sleep, body temp)
+- **Clinical Intake Form** — patient demographics, cardiac history, comorbidities, PHQ-2
+- **Real-Time Dashboard** — ECG waveform, HRV metrics, activity phase, SQI display
 
-```text
-                             NVIDIA DGX Spark
-                (Zero Egress • 128GB Unified Memory • Blackwell)
-+=============================================================================+
-|                                                                             |
-| +-----------+  BLE   +----------------+  MQTT   +------------------------+  |
-| | Polar H10 |------->| Signal Engine  |-------->| Mosquitto Local Broker |  |
-| | (130 Hz)  |        | (NeuroKit2)    |         | patient/{id}/vitals    |  |
-| +-----------+        | SQI + Padding  |         +----------+-------------+  |
-|                      +-------+--------+              sub   v                |
-|                              |                             |                |
-| +----------------------------v-----+       +---------------+-------------+  |
-| | ChromaDB (Knowledge Base)        |       | Lead Orchestrator Router    |  |
-| | • RAG Medical Literature         |       +---+-----------+-----------+-+  |
-| | • Historical Vitals              |           |           |           |    |
-| | • Intake Telemetry (Google Fit)  |           v           v           v    |
-| +----------------------------------+       +-------+   +-------+   +-------+|
-|                                            | Nurse |   | Duty  |   | Asst  ||
-|                                            | Qwen3 |   | Gemma |   | Gemma ||
-|                                            +-------+   +-------+   +-------+|
-+=============================================================================+
-```
+## Signal Processing Pipeline
 
-## ⚡ Core Capabilities
+### 5-Second Window
+- **SQI** — Signal Quality Index (0.0–1.0): template matching (0.4) + SNR (0.3) + motion correlation (0.3)
+- **Instantaneous HR** — from Pan-Tompkins + Hamilton consensus QRS detection
+- **HAR Features** — mean magnitude, variance, spectral entropy, median frequency
 
-1. **Continuous ECG Processing (130 Hz):**
-   - Pan-Tompkins + Hamilton consensus QRS detection. 
-   - ECG morphology delineation (DWT method): QRS width, QT interval, ST deviation.
-   - Beat-to-beat HRV metrics (SDNN, RMSSD, pNN50, LF/HF).
-   - High-fidelity **Historical Google Fit Baseline Integration** (15-min bucketing for HR, Body Temp, and segmented sleep stages).
+### 30-Second Window
+- **Time-domain HRV** — RMSSD, SDNN, pNN50
+- **Frequency-domain HRV** — LF/HF ratio via Lomb-Scargle periodogram
+- **ECG Morphology** — DWT delineation: P-width, QRS-width, QT/QTc, ST-width
 
-2. **Hardware-Enforced HIPAA Compliance:**
-   - No cloud orchestration. No third-party API keys. The entire stack—from MQTT to 72B foundation models—runs inside the physical walls of the clinic.
-
-3. **Multi-Agent Clinical Roles:**
-   - **Nurse Agent (Qwen3):** Patient-facing interface limited strictly to wellness phrasing and positive reinforcement.
-   - **Duty Doctor Agent (MedGemma-27B):** Generates structured SOAP notes conditioned on continuous Signal Quality Index (SQI) scores.
-   - **Clinical Assistant (MedGemma-27B):** Provides the clinician interrogative access to a patient's historical vitals and guidelines via local RAG retrieval.
-
-4. **Deterministic Safety Guardrails:**
-   - LLMs *do not* generate alarms. A deterministic, threshold-driven "Energy Safe Window" evaluates age, high-resolution historical intake, and real-time MET estimations before any automated response occurs.
-
-## 🚀 Quickstart
+## Quickstart
 
 ### Prerequisites
-- **Hardware**: NVIDIA DGX Spark (or equivalent >80GB VRAM system for full stack testing).
-- **Software**: Python 3.10+, Docker (for vLLM), Local Mosquitto Broker.
+- Python 3.10+
+- Polar H10 chest strap (optional — use `--mock` for testing)
+- MQTT broker (optional — EMQX cloud or local Mosquitto)
 
-### 1. Model Deployment (vLLM)
-PulseForgeAI requires the Foundation and Clinical LLMs bound to specific local ports.
-
+### Install
 ```bash
-# Primary Agent (Qwen2.5)
-docker run --gpus all -v /models:/models -p 8000:8000 nvcr.io/nvidia/vllm:latest \
-  --model /models/Qwen2.5-72B-Instruct-AWQ --quantization awq --max-model-len 32768
-
-# Clinical Agent (MedGemma)
-docker run --gpus all -v /models:/models -p 8001:8001 nvcr.io/nvidia/vllm:latest \
-  --model /models/MedGemma-27B-IT --quantization awq --port 8001
-```
-
-### 2. Environment Setup
-```bash
-git clone https://github.com/paudel54/PulseForgeAI.git
-cd PulseForgeAI/Application/Polar_Livestream-analysis-Python
 pip install -r requirements.txt
 ```
 
-### 3. Launch the Pipeline
-*To execute the full telemetry GUI with Google Fit Intake integration and MQTT live-streaming:*
-
+### Run
 ```bash
+# With real Polar H10 hardware
 python main.py
+
+# Mock sensor mode (no hardware needed)
+python main.py --mock
 ```
 
-## 🛡️ Clinical Design Philosophy
+## MQTT Payload Schema
 
-Clinical charting traditionally forces providers to reconstruct patient states from memory. PulseForgeAI flips this paradigm. By capturing high-density continuous physiological data and gating it behind real-time SQI evaluations, the system transforms a live rehab session into verifiable administrative documentation automatically. 
+```json
+{
+  "subject_id": "S001",
+  "timestamp_ns": 1743225420000000000,
+  "heart_rate": { "avg_bpm_ecg": 118, "n_r_peaks": 10 },
+  "hrv": { "rmssd_ms": 14.2, "sdnn_ms": 21.8, "lf_hf": 3.6 },
+  "ecg_morphology": { "p_ms": 102, "qrs_ms": 94, "qt_ms": 378, "qtc_ms": 391, "st_ms": 142 },
+  "ecg_quality": { "sqi": 0.87, "sqi_metrics": { "nk": 0.91, "qrs_energy": 0.85, "kurtosis": 0.84 } },
+  "accelerometer": { "mean_mag_mg": 1.02, "var_mag_mg2": 0.08, "spectral_entropy": 0.61, "median_freq_hz": 1.9 },
+  "activity": { "label": "treadmill_walking", "confidence": 0.84 }
+}
+```
 
-Our benchmark target: **80-87% reduction in SOAP note authoring time**, expanding concurrent nurse supervision capacity from 3 patients to 8 patients.
+## Directory Structure
+
+```
+├── main.py                    ← Entry point (real/mock sensor selection)
+├── intake_state.json          ← Combined clinical + Google Fit data schema
+├── polar_ecg/
+│   ├── workers/
+│   │   ├── processing_worker.py  ← Dual-window signal processing (451 lines)
+│   │   ├── ble_worker.py      ← Polar H10 BLE connection management
+│   │   └── mqtt_worker.py     ← QThread MQTT publisher (paho-mqtt v2)
+│   ├── ui/
+│   │   ├── dashboard.py       ← Real-time visualization dashboard
+│   │   └── intake_form.py     ← Clinical intake form
+│   └── utils/
+│       ├── google_fit_fetcher.py  ← Google Fit REST API integration
+│       ├── har_inference.py   ← HAR fusion model inference
+│       ├── mock_sensor.py     ← Synthetic ECG/ACC/HR generator
+│       ├── data_exporter.py   ← Session data export
+│       └── ring_buffer.py     ← Efficient circular buffer
+├── requirements.txt
+└── test_*.py                  ← BLE, MQTT, Google Fit test scripts
+```
 
 ---
-*Disclaimer: Research and development prototype only. Not currently FDA-cleared as a Software as a Medical Device (SaMD).*
+*Part of the Talk to Your Heart platform. See the [main README](../../Readme.md) for the full system architecture.*
