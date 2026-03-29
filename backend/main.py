@@ -29,12 +29,16 @@ DB_PATH = "/tmp/chroma_db" if os.environ.get("VERCEL") == "1" else "./chroma_db"
 chroma_client = chromadb.PersistentClient(path=DB_PATH)
 collection = chroma_client.get_or_create_collection(name="medical_docs")
 
-# Initialize FM Cohorts Integration if it exists
+# Initialize FM Cohorts & Live MQTT Integration
 try:
     cohort_collection = chroma_client.get_collection(name="patient_cohorts")
 except Exception:
-    # Safely fallback if the collection doesn't exist yet (prevents 500 boot crash)
     cohort_collection = None
+
+try:
+    live_patients_collection = chroma_client.get_collection(name="live_patients")
+except Exception:
+    live_patients_collection = None
 
 # Configuration for local Ollama - Supports tunneling via ngrok on Vercel
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
@@ -144,13 +148,35 @@ async def process_query(req: QueryRequest):
                         cohort_context += f"- Patient {idx+1}: Frailty/Activity: '{meta.get('exercise_label', 'Unknown')}', RMSSD: {meta.get('hrv_rmssd', 'N/A')}ms, Gait Velocity: {meta.get('max_gait_velocity', 'Unknown')}cm/s\n"
             except Exception as e:
                 cohort_context = f"\n[!] Cohort Engine Error: {str(e)}\n"
+                
+        # 1.6 Live MQTT Stream Interpolation (Target: Subject S000)
+        mqtt_context = ""
+        if live_patients_collection:
+            try:
+                live_res = live_patients_collection.get(ids=["S000_info", "S000_raw"])
+                if live_res and live_res.get('documents'):
+                    mqtt_context = "\n[LIVE MQTT TELEMETRY FEED (EMQX)]:\n"
+                    for doc in live_res['documents']:
+                        if doc:
+                            mqtt_context += f"{doc}\n"
+            except Exception as e:
+                mqtt_context = f"\n[!] MQTT Connection Exception: {str(e)}\n"
         
-        # 1.6 Execute Deterministic Safety Bounds (EnergySafeWindow)
-        # We mock patient intake data for the hackathon MVP scope
+        # 1.7 Execute Deterministic Safety Bounds (EnergySafeWindow)
+        # Check if the live MQTT stream has a Heart Rate
+        current_hr = req.patient_data.get("metrics", {}).get("heart_rate_bpm", 70)
+        if live_patients_collection and "S000_raw" in mqtt_context:
+            try:
+                # Naive parse of the raw JSON block inside the context string
+                import re
+                hr_match = re.search(r'"avg_bpm_ecg":\s*([\d.]+)', mqtt_context)
+                if hr_match:
+                    current_hr = float(hr_match.group(1))
+            except:
+                pass
+
         intake_data = {"age": 60, "prescribed_intensity_range": [0.4, 0.7]}
         safety_engine = EnergySafeWindow(intake_data)
-        
-        current_hr = req.patient_data.get("metrics", {}).get("heart_rate_bpm", 70)
         safety_bounds = safety_engine.check_safety(hr_bpm=current_hr, activity="exercise", sqi=0.95)
         
         # 2. Delegate to Lead Agent Orchestrator
@@ -159,7 +185,7 @@ async def process_query(req: QueryRequest):
             role=getattr(req, "role", "doctor"),
             patient_data=req.patient_data,
             retrieved_context=retrieved_context,
-            cohort_context=cohort_context,
+            cohort_context=cohort_context + mqtt_context,
             safety_bounds=safety_bounds,
             query=req.query
         )
