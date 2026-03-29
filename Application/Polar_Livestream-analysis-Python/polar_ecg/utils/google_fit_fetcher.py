@@ -82,8 +82,16 @@ class GoogleFitFetcher:
                 "calories": 0.0,
                 "heart_points": 0.0,
                 "avg_bpm": None,
+                "hr_array": [],
                 "body_temp": None,
-                "sleep_hours": 0.0
+                "temp_array": [],
+                "sleep_hours": 0.0,
+                "sleep_stages": {
+                    "light": 0.0,
+                    "deep": 0.0,
+                    "rem": 0.0,
+                    "awake": 0.0
+                }
             })
 
         # Separate REST requests let us gracefully catch "no default datasource"
@@ -134,32 +142,92 @@ class GoogleFitFetcher:
                 # Silently ignore sensors the user does not possess
                 pass
                 
-        # --- Fetch Sleep Data via Sessions API ---
-        # Google Fit aggregate drops sleep sessions that cross midnight.
-        # It is highly recommended to use the Sessions endpoint (activityType=72).
+        # --- Fetch High-Resolution (15-min) arrays for HR & Temp ---
+        array_metrics = [
+            ("hr_array", "com.google.heart_rate.bpm"),
+            ("temp_array", "com.google.body.temperature")
+        ]
+        
+        for key, type_name in array_metrics:
+            req_body = {
+                "aggregateBy": [{"dataTypeName": type_name}],
+                "bucketByTime": { "durationMillis": 900000 }, # 15 minutes
+                "startTimeMillis": start_time_ms,
+                "endTimeMillis": end_time_ms
+            }
+            try:
+                res = service.users().dataset().aggregate(userId="me", body=req_body).execute()
+                for bucket in res.get('bucket', []):
+                    b_start = int(bucket.get('startTimeMillis', 0))
+                    day_str = datetime.fromtimestamp(b_start / 1000.0).strftime('%Y-%m-%d')
+                    
+                    day_data = next((d for d in summary['days'] if d['date'] == day_str), None)
+                    if not day_data: continue
+                    
+                    for ds in bucket.get('dataset', []):
+                        points = ds.get('point', [])
+                        if not points: continue
+                        
+                        val = points[0].get('value', [{}])[0]
+                        reading = round(val.get("fpVal", 0.0), 1)
+                        if reading > 0:
+                            day_data[key].append({
+                                "ts": b_start,
+                                "val": reading
+                            })
+            except HttpError:
+                pass
+
+        # --- Fetch Sleep Stages via session bucketing ---
         try:
-            start_iso = start.strftime('%Y-%m-%dT%H:%M:%S.000Z')
-            end_iso = now.strftime('%Y-%m-%dT%H:%M:%S.000Z')
+            sleep_req = {
+                "aggregateBy": [{"dataTypeName": "com.google.sleep.segment"}],
+                "bucketBySession": { "minDurationMillis": 0 },
+                "startTimeMillis": start_time_ms,
+                "endTimeMillis": end_time_ms
+            }
+            sleep_res = service.users().dataset().aggregate(userId="me", body=sleep_req).execute()
             
-            sessions_res = service.users().sessions().list(
-                userId="me", 
-                startTime=start_iso,
-                endTime=end_iso,
-                activityType=72
-            ).execute()
-            
-            for session in sessions_res.get('session', []):
-                s_start = int(session.get('startTimeMillis', 0))
-                s_end = int(session.get('endTimeMillis', 0))
-                if s_start == 0 or s_end == 0: continue
+            for bucket in sleep_res.get('bucket', []):
+                # Using bucket boundary to associate with day
+                b_start = int(bucket.get('startTimeMillis', 0))
+                day_str = datetime.fromtimestamp(b_start / 1000.0).strftime('%Y-%m-%d')
                 
-                # Assign the sleep session to the date it started on
-                day_str = datetime.fromtimestamp(s_start / 1000.0).strftime('%Y-%m-%d')
                 day_data = next((d for d in summary['days'] if d['date'] == day_str), None)
-                if day_data:
-                    sleep_hours = (s_end - s_start) / 3600000.0  # ms to hr
-                    day_data["sleep_hours"] += round(sleep_hours, 2)
+                if not day_data: continue
+                
+                for ds in bucket.get('dataset', []):
+                    for point in ds.get('point', []):
+                        val_struct = point.get('value', [{}])[0]
+                        stage_enum = val_struct.get('intVal', 1)
+                        
+                        p_start = int(point.get('startTimeNanos', 0))
+                        p_end = int(point.get('endTimeNanos', 0))
+                        dur_hrs = (p_end - p_start) / 1e9 / 3600.0
+                        if dur_hrs < 0: continue
+                        
+                        if stage_enum == 4:
+                            day_data["sleep_stages"]["deep"] += dur_hrs
+                        elif stage_enum == 3:
+                            day_data["sleep_stages"]["light"] += dur_hrs
+                        elif stage_enum == 5:
+                            day_data["sleep_stages"]["rem"] += dur_hrs
+                        elif stage_enum in (2, 6):
+                            day_data["sleep_stages"]["awake"] += dur_hrs
+                            
+                        # Total sleep excludes awake times
+                        if stage_enum not in (2, 6):
+                            day_data["sleep_hours"] += dur_hrs
+                            
+            # Round out the precision
+            for d in summary['days']:
+                d["sleep_hours"] = round(d["sleep_hours"], 2)
+                d["sleep_stages"]["deep"] = round(d["sleep_stages"]["deep"], 2)
+                d["sleep_stages"]["light"] = round(d["sleep_stages"]["light"], 2)
+                d["sleep_stages"]["rem"] = round(d["sleep_stages"]["rem"], 2)
+                d["sleep_stages"]["awake"] = round(d["sleep_stages"]["awake"], 2)
+                
         except Exception as e:
-            print(f"Failed to fetch sleep sessions: {e}")
+            print(f"Failed to fetch sleep stages: {e}")
             
         return summary

@@ -261,11 +261,19 @@ class IntakeFormDialog(QDialog):
                 hr_days = sum(1 for d in data["days"] if d.get("avg_bpm") is not None)
                 temp_days = sum(1 for d in data["days"] if d.get("body_temp") is not None)
                 
+                hr_pts = sum(len(d.get("hr_array", [])) for d in data["days"])
+                temp_pts = sum(len(d.get("temp_array", [])) for d in data["days"])
+                
+                deep_hrs = sum(d["sleep_stages"]["deep"] for d in data["days"])
+                rem_hrs = sum(d["sleep_stages"]["rem"] for d in data["days"])
+                light_hrs = sum(d["sleep_stages"]["light"] for d in data["days"])
+                
                 self.txt_fit_status.append(f"Success! Fetched {len(data['days'])} days of metrics.")
                 self.txt_fit_status.append(f"Total Steps: {total_steps:,}")
                 self.txt_fit_status.append(f"Total Sleep: {overall_sleep:.1f} hrs")
-                self.txt_fit_status.append(f"HR logged across {hr_days} days")
-                self.txt_fit_status.append(f"Body Temp logged across {temp_days} days")
+                self.txt_fit_status.append(f"Sleep Stages: Deep {deep_hrs:.1f}h | REM {rem_hrs:.1f}h | Light {light_hrs:.1f}h")
+                self.txt_fit_status.append(f"HR Array: {hr_pts:,} pts (across {hr_days} days)")
+                self.txt_fit_status.append(f"Body Temp Array: {temp_pts:,} pts (across {temp_days} days)")
                 
         except Exception as e:
             self.txt_fit_status.append(f"Error: {e}")
