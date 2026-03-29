@@ -29,8 +29,8 @@ collection = chroma_client.get_or_create_collection(name="medical_docs")
 # Initialize FM Cohorts Integration if it exists
 try:
     cohort_collection = chroma_client.get_collection(name="patient_cohorts")
-except ValueError:
-    # Not yet instantiated
+except Exception:
+    # Safely fallback if the collection doesn't exist yet (prevents 500 boot crash)
     cohort_collection = None
 
 # Configuration for local Ollama - Supports tunneling via ngrok on Vercel
