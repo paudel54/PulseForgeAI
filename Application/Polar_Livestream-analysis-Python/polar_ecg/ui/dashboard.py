@@ -25,6 +25,7 @@ from polar_ecg.utils.ring_buffer import RingBuffer
 from polar_ecg.utils.data_exporter import DataExporter
 from polar_ecg.workers.ble_worker import BLEWorker
 from polar_ecg.workers.processing_worker import ProcessingWorker
+from polar_ecg.workers.mqtt_worker import MQTTWorker
 
 
 def _make_dark_palette() -> QPalette:
@@ -212,6 +213,7 @@ class MainDashboard(QMainWindow):
         self._ble_thread  = None
         self._proc_worker = None
         self._proc_thread = None
+        self._mqtt_worker = None
 
         self._build_ui()
         self._apply_theme()
@@ -796,7 +798,16 @@ class MainDashboard(QMainWindow):
                     json.dump(self._intake_payload, f, indent=4)
             except Exception as e:
                 self._log(f"Failed to copy intake form to session path: {e}")
+
+            # MQTT Startup
+            if not getattr(self, '_mqtt_worker', None):
+                self._mqtt_worker = MQTTWorker(broker="broker.emqx.io", port=1883)
+                self._mqtt_worker.log_msg.connect(self._log)
+                self._mqtt_worker.start()
                 
+            # Publish intake payload
+            self._mqtt_worker.publish(f"pulseforgeai/{subject_id}/info", self._intake_payload)
+
         except Exception as exc:
             self._log(f"Cannot start recording: {exc}")
             return
@@ -811,6 +822,12 @@ class MainDashboard(QMainWindow):
 
     def _on_stop_recording(self):
         self._exporter.stop_session()
+        
+        if getattr(self, '_mqtt_worker', None):
+            self._mqtt_worker.stop()
+            self._mqtt_worker = None
+            self._log("MQTT connection stopped.")
+
         n = self._exporter.window_count
         self._record_btn.setEnabled(True)
         self._stop_rec_btn.setEnabled(False)
@@ -926,6 +943,12 @@ class MainDashboard(QMainWindow):
             acc_features   = acc_features,
         )
         self._exporter.append_window(payload)
+        
+        if getattr(self, '_mqtt_worker', None):
+            subject_id = self._intake_payload.get("subject_id", "unknown")
+            mqtt_payload = payload.copy()
+            mqtt_payload["raw_ecg"] = window_result.get("raw_ecg", [])
+            self._mqtt_worker.publish(f"pulseforgeai/{subject_id}/raw", mqtt_payload)
 
         n = self._exporter.window_count
         sqi = window_result.get("sqi")
