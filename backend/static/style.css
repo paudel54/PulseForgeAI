@@ -665,6 +665,26 @@ body {
     line-height: 1.5;
 }
 
+.citation-badge {
+    color: var(--primary);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+    background: rgba(79, 172, 254, 0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.9em;
+    font-weight: 500;
+    margin: 0 2px;
+    white-space: nowrap;
+    cursor: help;
+    transition: all 0.2s ease;
+}
+
+.citation-badge:hover {
+    background: rgba(79, 172, 254, 0.2);
+}
+
 .system-notice {
     text-align: center;
     font-size: 0.8rem;
