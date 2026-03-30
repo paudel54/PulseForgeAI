@@ -48,6 +48,12 @@ Cardiac rehabilitation is a Class 1A recommended therapy that reduces all-cause 
 +=============================================================================+
 ```
 
+<img width="3589" height="2311" alt="image" src="https://github.com/user-attachments/assets/58e1e221-95de-4b8e-b5d0-945e7ae453af" />
+
+<img width="2558" height="1504" alt="image" src="https://github.com/user-attachments/assets/1ccc3d55-d002-423b-8d99-b5fb6f5e883d" />
+
+
+
 ## ⚡ Key Features
 
 **1. Dual-Window Signal Processing Pipeline**
